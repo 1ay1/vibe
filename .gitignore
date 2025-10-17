@@ -115,3 +115,4 @@ test_output/
 *.gcda
 *.gcno
 coverage/
+vibe_parser_tool
