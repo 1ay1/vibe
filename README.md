@@ -18,6 +18,7 @@
 - 🌍 **Unicode Support** - UTF-8 strings with proper escaping
 - 🎨 **Flexible Whitespace** - No significant indentation rules
 - 🔧 **Type Inference** - Automatic detection of integers, floats, booleans, strings
+- 🛡️ **Stability by Design** - Arrays of objects are forbidden, forcing stable named entities (see [Philosophy](docs/Stability_Paradox.md))
 
 ## 📖 Quick Example
 

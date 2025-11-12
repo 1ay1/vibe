@@ -1659,16 +1659,26 @@
     <span class="token string">blue</span>
 <span class="token punctuation">]</span>
 
-<span class="token comment"># Mixed types (allowed but not recommended)</span>
+<span class="token comment"># Mixed types (allowed)</span>
 <span class="token property">mixed</span> <span class="token punctuation">[</span><span class="token number">42</span> <span class="token string">"text"</span> <span class="token boolean">true</span> <span class="token number">3.14</span><span class="token punctuation">]</span>
 
-<span class="token comment"># Nested arrays</span>
-<span class="token property">matrix</span> <span class="token punctuation">[</span>
-    <span class="token punctuation">[</span><span class="token number">1</span> <span class="token number">2</span> <span class="token number">3</span><span class="token punctuation">]</span>
-    <span class="token punctuation">[</span><span class="token number">4</span> <span class="token number">5</span> <span class="token number">6</span><span class="token punctuation">]</span>
-    <span class="token punctuation">[</span><span class="token number">7</span> <span class="token number">8</span> <span class="token number">9</span><span class="token punctuation">]</span>
-<span class="token punctuation">]</span></code></pre>
+<span class="token comment"># Empty arrays are valid</span>
+<span class="token property">empty</span> <span class="token punctuation">[</span><span class="token punctuation">]</span></code></pre>
                             </div>
+                        </div>
+
+                        <div class="info-box warning">
+                            <div class="info-box-title">
+                                <i class="fas fa-exclamation-triangle"></i>
+                                Array Restrictions (By Design)
+                            </div>
+                            <ul>
+                                <li><strong>Arrays can ONLY contain scalar values</strong> (integers, floats, booleans, strings)</li>
+                                <li><strong>Objects are NOT allowed inside arrays</strong> - Parser will reject with error</li>
+                                <li><strong>Nested arrays are NOT allowed</strong> - No multi-dimensional arrays</li>
+                                <li>Use named objects instead for complex data structures</li>
+                                <li>This is intentional - see <a href="Stability_Paradox.html">The Stability Paradox</a> for rationale</li>
+                            </ul>
                         </div>
 
                         <div class="info-box note">
@@ -1679,16 +1689,54 @@
                             <ul>
                                 <li>Elements are separated by whitespace or newlines</li>
                                 <li>No commas required</li>
-                                <li>
-                                    Arrays can span multiple lines for
-                                    readability
-                                </li>
+                                <li>Arrays can span multiple lines for readability</li>
                                 <li>Empty arrays <code>[]</code> are valid</li>
-                                <li>
-                                    Nested arrays create multi-dimensional
-                                    structures
-                                </li>
+                                <li>Mixed types are allowed (but use consistently when possible)</li>
                             </ul>
+                        </div>
+
+                        <div class="code-block">
+                            <div class="code-header">
+                                <span class="code-language">VIBE - INVALID</span>
+                            </div>
+                            <div class="code-content">
+                                <pre><code><span class="token comment"># ❌ This will FAIL - Objects in arrays not allowed</span>
+<span class="token property">servers</span> <span class="token punctuation">[</span>
+    <span class="token punctuation">{</span> <span class="token property">name</span> <span class="token string">web1</span> <span class="token property">port</span> <span class="token number">8080</span> <span class="token punctuation">}</span>
+    <span class="token punctuation">{</span> <span class="token property">name</span> <span class="token string">web2</span> <span class="token property">port</span> <span class="token number">8081</span> <span class="token punctuation">}</span>
+<span class="token punctuation">]</span>
+
+<span class="token comment"># ❌ This will FAIL - Nested arrays not allowed</span>
+<span class="token property">matrix</span> <span class="token punctuation">[</span>
+    <span class="token punctuation">[</span><span class="token number">1</span> <span class="token number">2</span> <span class="token number">3</span><span class="token punctuation">]</span>
+    <span class="token punctuation">[</span><span class="token number">4</span> <span class="token number">5</span> <span class="token number">6</span><span class="token punctuation">]</span>
+<span class="token punctuation">]</span></code></pre>
+                            </div>
+                        </div>
+
+                        <div class="code-block">
+                            <div class="code-header">
+                                <span class="code-language">VIBE - CORRECT</span>
+                            </div>
+                            <div class="code-content">
+                                <pre><code><span class="token comment"># ✅ Use named objects instead</span>
+<span class="token property">servers</span> <span class="token punctuation">{</span>
+    <span class="token property">web1</span> <span class="token punctuation">{</span>
+        <span class="token property">port</span> <span class="token number">8080</span>
+        <span class="token property">host</span> <span class="token string">server1.com</span>
+    <span class="token punctuation">}</span>
+    <span class="token property">web2</span> <span class="token punctuation">{</span>
+        <span class="token property">port</span> <span class="token number">8081</span>
+        <span class="token property">host</span> <span class="token string">server2.com</span>
+    <span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+
+<span class="token comment"># ✅ For matrix data, use named rows</span>
+<span class="token property">matrix</span> <span class="token punctuation">{</span>
+    <span class="token property">row_1</span> <span class="token punctuation">[</span><span class="token number">1</span> <span class="token number">2</span> <span class="token number">3</span><span class="token punctuation">]</span>
+    <span class="token property">row_2</span> <span class="token punctuation">[</span><span class="token number">4</span> <span class="token number">5</span> <span class="token number">6</span><span class="token punctuation">]</span>
+<span class="token punctuation">}</span></code></pre>
+                            </div>
                         </div>
 
                         <h3 id="objects">Objects</h3>

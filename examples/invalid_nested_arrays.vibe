@@ -1,0 +1,37 @@
+# Invalid VIBE Configuration - Arrays Cannot Be Nested
+# This file demonstrates what NOT to do in VIBE
+# The parser will reject this with an error message
+
+# ❌ THIS WILL FAIL - Arrays cannot contain other arrays
+matrix [
+  [1 2 3]
+  [4 5 6]
+  [7 8 9]
+]
+
+# Expected error:
+# "Arrays cannot be nested inside other arrays."
+
+# ❌ This also fails - no multi-dimensional arrays
+coordinates [
+  [10.5 20.3]
+  [30.1 40.7]
+]
+
+# ✅ The correct VIBE way depends on your use case:
+#
+# Option 1: Flatten to a single array if the structure allows
+# all_numbers [1 2 3 4 5 6 7 8 9]
+#
+# Option 2: Use named objects for structured data
+# matrix {
+#   row_1 [1 2 3]
+#   row_2 [4 5 6]
+#   row_3 [7 8 9]
+# }
+#
+# Option 3: For coordinates, use named points
+# coordinates {
+#   point_a [10.5 20.3]
+#   point_b [30.1 40.7]
+# }

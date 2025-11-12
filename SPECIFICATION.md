@@ -395,9 +395,13 @@ mixed_special "配置 # with comment char"
 **Syntax**: Values separated by whitespace, enclosed in `[]`
 
 **Restrictions**:
-- Arrays can only contain scalar values (no nested objects or arrays)
+- Arrays can **ONLY** contain scalar values: integers, floats, booleans, and strings
+- **Objects are NOT allowed inside arrays** - The parser will reject this with an error
+- **Nested arrays are NOT allowed** - Arrays cannot contain other arrays
 - All values are parsed independently as primitives
 - Use named objects instead of object arrays for complex data
+
+> **Design Philosophy**: This restriction is intentional and core to VIBE's design. Arrays of objects create instability through index-based references, ambiguous merging, and lack of inherent identity. VIBE forces you to use named objects, which provide stable path-based references and deterministic configuration merging. See [Stability_Paradox.md](docs/Stability_Paradox.md) for the full rationale.
 
 **Examples**:
 ```
@@ -410,14 +414,24 @@ flags [enabled debug verbose]
 
 **Invalid** (objects in arrays not allowed):
 ```
-# This is NOT valid VIBE syntax
+# ❌ This is NOT valid VIBE syntax - parser will reject this
 servers [
   {
     host server1.com
     port 8080
   }
 ]
+
+# ❌ Nested arrays also not allowed
+matrix [
+  [1 2 3]
+  [4 5 6]
+]
 ```
+
+**Error messages you'll see**:
+- `"Objects cannot be placed inside arrays. Use named objects instead."`
+- `"Arrays cannot be nested inside other arrays."`
 
 **Use this pattern instead**:
 ```

@@ -725,17 +725,17 @@ VibeValue* vibe_parse_string(VibeParser* parser, const char* input) {
                 }
                 token_free(&token);
             } else if (token.type == TOKEN_LEFT_BRACE) {
-                /* Object within array */
-                VibeValue* obj = vibe_value_new_object();
-                vibe_array_push(frame->container->as_array, obj);
-
-                if (stack.depth < MAX_NESTING_DEPTH - 1) {
-                    stack.depth++;
-                    stack.frames[stack.depth].state = STATE_OBJECT;
-                    stack.frames[stack.depth].container = obj;
-                    stack.frames[stack.depth].current_key = NULL;
-                }
+                /* Objects are not allowed in arrays */
+                set_error(parser, "Objects cannot be placed inside arrays. Use named objects instead.");
                 token_free(&token);
+                vibe_value_free(root);
+                return NULL;
+            } else if (token.type == TOKEN_LEFT_BRACKET) {
+                /* Arrays are not allowed in arrays */
+                set_error(parser, "Arrays cannot be nested inside other arrays.");
+                token_free(&token);
+                vibe_value_free(root);
+                return NULL;
             } else {
                 /* Parse value - this could be a simple value or start of an object */
                 if (token.type == TOKEN_IDENTIFIER) {

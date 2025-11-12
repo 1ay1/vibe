@@ -1,0 +1,36 @@
+# Invalid VIBE Configuration - Arrays Cannot Contain Objects
+# This file demonstrates what NOT to do in VIBE
+# The parser will reject this with an error message
+
+# ❌ THIS WILL FAIL - Objects cannot be placed inside arrays
+database {
+  replicas [
+    {
+      name replica_east
+      host db-east-1.internal
+      port 5432
+    }
+    {
+      name replica_west
+      host db-west-1.internal
+      port 5432
+    }
+  ]
+}
+
+# Expected error:
+# "Objects cannot be placed inside arrays. Use named objects instead."
+
+# ✅ The correct VIBE way is to use named objects:
+# database {
+#   replicas {
+#     east {
+#       host db-east-1.internal
+#       port 5432
+#     }
+#     west {
+#       host db-west-1.internal
+#       port 5432
+#     }
+#   }
+# }
