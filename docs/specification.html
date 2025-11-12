@@ -1016,6 +1016,7 @@
                     <a href="index.html">Home</a>
                     <a href="#grammar">Grammar</a>
                     <a href="#data-types">Data Types</a>
+                    <a href="Stability_Paradox.html">Philosophy</a>
                     <a href="https://github.com/1ay1/vibe" class="github-btn">
                         <i class="fab fa-github"></i> GitHub
                     </a>
@@ -1147,8 +1148,8 @@
                                     Minimal Syntax
                                 </div>
                                 <div class="card-content">
-                                    Reduced punctuation overhead with optional
-                                    commas and minimal quoting requirements
+                                    Reduced punctuation overhead with minimal
+                                    quoting requirements and whitespace separation
                                 </div>
                             </div>
 
@@ -1222,12 +1223,14 @@
                                 </button>
                             </div>
                             <div class="code-content">
-                                <pre><code><span class="token keyword">document</span>     = { assignment | comment | newline } ;
-<span class="token keyword">assignment</span>  = identifier ":" value newline ;
-<span class="token keyword">value</span>       = string | number | boolean | array | object ;
-<span class="token keyword">object</span>      = "{" newline { assignment } "}" ;
-<span class="token keyword">array</span>       = "[" [ value { "," value } ] "]" ;
-<span class="token keyword">identifier</span>  = letter { letter | digit | "_" | "-" } ;</code></pre>
+                                <pre><code><span class="token keyword">config</span>        = { statement } ;
+<span class="token keyword">statement</span>     = ( assignment | object | array | comment ) [ comment ] newline ;
+<span class="token keyword">assignment</span>    = identifier ( scalar_value | object | array ) ;
+<span class="token keyword">object</span>        = identifier "{" { statement } "}" ;
+<span class="token keyword">array</span>         = identifier "[" [ value_list ] "]" ;
+<span class="token keyword">value_list</span>    = scalar_value { ( whitespace | newline ) scalar_value } ;
+<span class="token keyword">scalar_value</span>  = string | number | boolean | identifier ;
+<span class="token keyword">identifier</span>    = ( letter | "_" ) { letter | digit | "_" | "-" } ;</code></pre>
                             </div>
                         </div>
 
@@ -1312,18 +1315,7 @@
                                         <td>Array end</td>
                                         <td><code>]</code></td>
                                     </tr>
-                                    <tr>
-                                        <td><code>COLON</code></td>
-                                        <td><code>:</code></td>
-                                        <td>Key-value separator</td>
-                                        <td><code>:</code></td>
-                                    </tr>
-                                    <tr>
-                                        <td><code>COMMA</code></td>
-                                        <td><code>,</code></td>
-                                        <td>Array element separator</td>
-                                        <td><code>,</code></td>
-                                    </tr>
+
                                     <tr>
                                         <td><code>COMMENT</code></td>
                                         <td><code>#.*</code></td>
@@ -1685,8 +1677,8 @@
                                 Array Syntax Rules
                             </div>
                             <ul>
-                                <li>Elements are separated by commas</li>
-                                <li>Trailing commas are allowed</li>
+                                <li>Elements are separated by whitespace or newlines</li>
+                                <li>No commas required</li>
                                 <li>
                                     Arrays can span multiple lines for
                                     readability
@@ -2026,6 +2018,7 @@
         <footer>
             <div class="footer-links">
                 <a href="specification.html">Documentation</a>
+                <a href="Stability_Paradox.html">Philosophy</a>
                 <a href="https://github.com/1ay1/vibe">GitHub</a>
                 <a href="https://github.com/1ay1/vibe/issues">Issues</a>
                 <a href="https://github.com/1ay1/vibe/releases">Releases</a>

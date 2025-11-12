@@ -1,0 +1,893 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <link rel="shortcut icon" type="image/x-icon" href="favicon.ico?" />
+        <title>The Stability Paradox - VIBE Philosophy</title>
+        <meta
+            name="description"
+            content="Why your configuration's favorite feature is a bug. Understanding VIBE's design philosophy and the problem with arrays of objects."
+        />
+
+        <link
+            href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;1,100;1,200;1,300;1,400;1,500;1,600;1,700&display=swap"
+            rel="stylesheet"
+        />
+        <link
+            rel="stylesheet"
+            href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+        />
+
+        <style>
+            * {
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }
+
+            :root {
+                --primary: #6366f1;
+                --primary-light: #818cf8;
+                --primary-dark: #4f46e5;
+                --secondary: #8b5cf6;
+                --accent: #06b6d4;
+                --success: #10b981;
+                --warning: #f59e0b;
+                --danger: #ef4444;
+            }
+
+            /* Dark theme (default) */
+            :root {
+                --bg-primary: #0f172a;
+                --bg-secondary: #1e293b;
+                --bg-tertiary: #334155;
+                --text-primary: #f1f5f9;
+                --text-secondary: #cbd5e1;
+                --text-muted: #94a3b8;
+                --border-color: #475569;
+                --card-bg: #1e293b;
+                --code-bg: #0f172a;
+            }
+
+            /* Light theme */
+            [data-theme="light"] {
+                --bg-primary: #ffffff;
+                --bg-secondary: #f8fafc;
+                --bg-tertiary: #f1f5f9;
+                --text-primary: #0f172a;
+                --text-secondary: #334155;
+                --text-muted: #64748b;
+                --border-color: #e2e8f0;
+                --card-bg: #ffffff;
+                --code-bg: #0f172a;
+            }
+
+            html {
+                scroll-behavior: smooth;
+            }
+
+            body {
+                font-family:
+                    "IBM Plex Mono", "JetBrains Mono", "Fira Code",
+                    "Cascadia Code", "SF Mono", "Monaco", "Inconsolata",
+                    "Roboto Mono", "Source Code Pro", monospace;
+                line-height: 1.6;
+                color: var(--text-primary);
+                background: var(--bg-primary);
+                overflow-x: hidden;
+                transition:
+                    background-color 0.3s ease,
+                    color 0.3s ease;
+            }
+
+            /* Header */
+            header {
+                position: fixed;
+                top: 0;
+                width: 100%;
+                background: rgba(15, 23, 42, 0.95);
+                backdrop-filter: blur(10px);
+                border-bottom: 1px solid var(--border-color);
+                z-index: 1000;
+                transition: all 0.3s ease;
+            }
+
+            [data-theme="light"] header {
+                background: rgba(255, 255, 255, 0.95);
+            }
+
+            nav {
+                max-width: 1200px;
+                margin: 0 auto;
+                padding: 1rem 2rem;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+            }
+
+            .logo {
+                font-size: 1.5rem;
+                font-weight: 900;
+                color: var(--text-primary);
+                text-decoration: none;
+                transition: all 0.3s ease;
+            }
+
+            .logo:hover {
+                color: var(--primary);
+            }
+
+            .nav-links {
+                display: flex;
+                gap: 2rem;
+                align-items: center;
+            }
+
+            .nav-links a {
+                color: var(--text-secondary);
+                text-decoration: none;
+                font-weight: 500;
+                transition: color 0.3s ease;
+            }
+
+            .nav-links a:hover {
+                color: var(--primary);
+            }
+
+            .theme-switcher {
+                display: flex;
+                align-items: center;
+                gap: 1rem;
+            }
+
+            .theme-toggle {
+                position: relative;
+                width: 60px;
+                height: 30px;
+                background: var(--bg-tertiary);
+                border-radius: 15px;
+                cursor: pointer;
+                transition: background 0.3s ease;
+            }
+
+            .theme-toggle-slider {
+                position: absolute;
+                top: 3px;
+                left: 3px;
+                width: 24px;
+                height: 24px;
+                background: white;
+                border-radius: 50%;
+                transition: transform 0.3s ease;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+
+            [data-theme="light"] .theme-toggle-slider {
+                transform: translateX(30px);
+            }
+
+            .theme-icon {
+                font-size: 0.8rem;
+            }
+
+            /* Article */
+            .article-container {
+                max-width: 900px;
+                margin: 6rem auto 4rem;
+                padding: 0 2rem;
+            }
+
+            .article-header {
+                text-align: center;
+                margin-bottom: 4rem;
+                padding: 3rem 0;
+            }
+
+            .article-title {
+                font-size: 3rem;
+                font-weight: 900;
+                color: var(--text-primary);
+                margin-bottom: 1rem;
+                line-height: 1.2;
+            }
+
+            .article-subtitle {
+                font-size: 1.5rem;
+                color: var(--text-secondary);
+                font-weight: 400;
+                font-style: italic;
+            }
+
+            .article-meta {
+                display: flex;
+                justify-content: center;
+                gap: 2rem;
+                margin-top: 2rem;
+                color: var(--text-muted);
+                font-size: 0.9rem;
+            }
+
+            .article-content {
+                font-size: 1.1rem;
+                line-height: 1.9;
+                color: var(--text-secondary);
+            }
+
+            .article-content h2 {
+                font-size: 2rem;
+                color: var(--text-primary);
+                margin: 3rem 0 1.5rem;
+                font-weight: 800;
+            }
+
+            .article-content h3 {
+                font-size: 1.5rem;
+                color: var(--text-primary);
+                margin: 2.5rem 0 1rem;
+                font-weight: 700;
+            }
+
+            .article-content h4 {
+                font-size: 1.25rem;
+                color: var(--primary);
+                margin: 2rem 0 1rem;
+                font-weight: 600;
+            }
+
+            .article-content p {
+                margin-bottom: 1.5rem;
+            }
+
+            .article-content strong {
+                color: var(--text-primary);
+                font-weight: 700;
+            }
+
+            .article-content em {
+                color: var(--primary-light);
+                font-style: italic;
+            }
+
+            .article-content ul,
+            .article-content ol {
+                margin: 1.5rem 0;
+                padding-left: 2rem;
+            }
+
+            .article-content li {
+                margin-bottom: 0.75rem;
+            }
+
+            .code-block {
+                background: var(--code-bg);
+                border-radius: 12px;
+                padding: 1.5rem;
+                margin: 2rem 0;
+                overflow-x: auto;
+                border: 1px solid var(--border-color);
+                position: relative;
+            }
+
+            [data-theme="light"] .code-block {
+                background: #f8fafc;
+                border: 1px solid var(--border-color);
+            }
+
+            .code-header {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-bottom: 1rem;
+                padding-bottom: 0.75rem;
+                border-bottom: 1px solid var(--border-color);
+            }
+
+            .code-language {
+                color: var(--text-muted);
+                font-size: 0.85rem;
+                font-weight: 600;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+            }
+
+            .code-content {
+                overflow-x: auto;
+            }
+
+            .code-content pre {
+                margin: 0;
+                font-family: "IBM Plex Mono", monospace;
+                font-size: 0.95rem;
+                line-height: 1.6;
+            }
+
+            .code-content code {
+                color: #e2e8f0;
+                white-space: pre;
+            }
+
+            [data-theme="light"] .code-content code {
+                color: #475569;
+            }
+
+            .comment {
+                color: #6a9955;
+            }
+
+            .property {
+                color: #9cdcfe;
+            }
+
+            .string {
+                color: #ce9178;
+            }
+
+            .number {
+                color: #b5cea8;
+            }
+
+            .keyword {
+                color: #569cd6;
+            }
+
+            .highlight-box {
+                background: rgba(99, 102, 241, 0.1);
+                border-left: 4px solid var(--primary);
+                padding: 1.5rem;
+                margin: 2rem 0;
+                border-radius: 8px;
+            }
+
+            .highlight-box p {
+                margin: 0;
+                color: var(--text-primary);
+            }
+
+            .warning-box {
+                background: rgba(239, 68, 68, 0.1);
+                border-left: 4px solid var(--danger);
+                padding: 1.5rem;
+                margin: 2rem 0;
+                border-radius: 8px;
+            }
+
+            .success-box {
+                background: rgba(16, 185, 129, 0.1);
+                border-left: 4px solid var(--success);
+                padding: 1.5rem;
+                margin: 2rem 0;
+                border-radius: 8px;
+            }
+
+            .comparison-grid {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 2rem;
+                margin: 2rem 0;
+            }
+
+            .comparison-card {
+                background: var(--card-bg);
+                padding: 2rem;
+                border-radius: 12px;
+                border: 1px solid var(--border-color);
+            }
+
+            .comparison-card h4 {
+                margin-top: 0;
+                display: flex;
+                align-items: center;
+                gap: 0.5rem;
+            }
+
+            .cta-section {
+                text-align: center;
+                margin: 4rem 0;
+                padding: 3rem;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                border-radius: 16px;
+                color: white;
+            }
+
+            .cta-section h3 {
+                font-size: 2rem;
+                margin-bottom: 1rem;
+            }
+
+            .cta-buttons {
+                display: flex;
+                gap: 1rem;
+                justify-content: center;
+                margin-top: 2rem;
+            }
+
+            .btn {
+                display: inline-flex;
+                align-items: center;
+                gap: 0.5rem;
+                padding: 1rem 2rem;
+                border-radius: 8px;
+                text-decoration: none;
+                font-weight: 700;
+                transition: all 0.3s ease;
+            }
+
+            .btn-primary {
+                background: white;
+                color: #667eea;
+            }
+
+            .btn-primary:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+            }
+
+            .btn-secondary {
+                background: transparent;
+                color: white;
+                border: 2px solid white;
+            }
+
+            .btn-secondary:hover {
+                background: white;
+                color: #667eea;
+            }
+
+            footer {
+                background: var(--bg-secondary);
+                padding: 2rem;
+                text-align: center;
+                border-top: 1px solid var(--border-color);
+                margin-top: 4rem;
+            }
+
+            .footer-links {
+                display: flex;
+                justify-content: center;
+                gap: 2rem;
+                margin-bottom: 1rem;
+            }
+
+            .footer-links a {
+                color: var(--text-secondary);
+                text-decoration: none;
+                transition: color 0.3s ease;
+            }
+
+            .footer-links a:hover {
+                color: var(--primary);
+            }
+
+            @media (max-width: 768px) {
+                .article-title {
+                    font-size: 2rem;
+                }
+
+                .article-subtitle {
+                    font-size: 1.2rem;
+                }
+
+                .comparison-grid {
+                    grid-template-columns: 1fr;
+                }
+
+                .nav-links {
+                    gap: 1rem;
+                }
+            }
+        </style>
+    </head>
+    <body>
+        <header>
+            <nav>
+                <a href="index.html" class="logo">VIBE 🌊</a>
+                <div class="nav-links">
+                    <a href="index.html">Home</a>
+                    <a href="specification.html">Docs</a>
+                    <a href="https://github.com/1ay1/vibe">
+                        <i class="fab fa-github"></i> GitHub
+                    </a>
+                </div>
+                <div class="theme-switcher">
+                    <div class="theme-toggle" onclick="toggleTheme()">
+                        <div class="theme-toggle-slider">
+                            <span class="theme-icon">🌙</span>
+                        </div>
+                    </div>
+                </div>
+            </nav>
+        </header>
+
+        <div class="article-container">
+            <div class="article-header">
+                <h1 class="article-title">The Stability Paradox</h1>
+                <p class="article-subtitle">
+                    Why Your Configuration's Favorite Feature is a Bug
+                </p>
+            </div>
+
+            <article class="article-content">
+                <p>
+                    In the world of software engineering, we are obsessed with
+                    stability. We write tests, we build redundant systems, and
+                    we create fail-safes. We design our code to be predictable
+                    and robust. Yet, day after day, we define our systems using
+                    configuration formats that have a hidden, ticking time bomb
+                    at their core: the <strong>array of objects</strong>.
+                </p>
+
+                <p>
+                    When I designed the
+                    <a
+                        href="https://1ay1.github.io/vibe/"
+                        style="color: var(--primary)"
+                        >VIBE configuration format</a
+                    >, I made a controversial decision: to forbid objects from
+                    being placed inside arrays. This wasn't an oversight or a
+                    missing feature. It was a deliberate choice to remove a
+                    source of silent instability that plagues even the most
+                    popular formats like YAML and JSON.
+                </p>
+
+                <div class="highlight-box">
+                    <p>
+                        <strong</p>
+                            >This decision is the philosophical heart of
+                            VIBE.</strong
+                        >
+                        It's a constraint designed to force a better, more
+                        stable pattern of configuration. Let's dive into why.
+                    </p>
+                </div>
+
+                <h2>The Hidden Instability of Anonymous Lists</h2>
+
+                <p></p>
+                    Imagine a common scenario: you need to configure a primary
+                    database and several read-replicas. In YAML, you might
+                    write something like this:
+                </p>
+
+                <div class="code-block">
+                    <div class="code-header">
+                        <span class="code-language">YAML</span>
+                    </div>
+                    <div class="code-content">
+                        <pre><code><span class="comment"># A common, but fragile, pattern</span>
+<span class="property">database</span>:
+  <span class="property">replicas</span>:
+    - <span class="property">name</span>: replica_east
+      <span class="property">host</span>: db-east-1.internal
+      <span class="property">timeout</span>: <span class="number">30</span>
+    - <span class="property">name</span>: replica_west
+      <span class="property">host</span>: db-west-1.internal
+      <span class="property">timeout</span>: <span class="number">30</span>
+    - <span class="property">name</span>: replica_eu
+      <span class="property">host</span>: db-eu-1.internal
+      <span class="property">timeout</span>: <span class="number">45</span></code></pre>
+                    </div>
+                </div>
+
+                <p>
+                    This looks clean and logical. But it contains three critical
+                    weaknesses that can—and do—cause real-world production
+                    issues.
+                </p>
+
+                <h3>1. The Fragility of Index-Based References</h3>
+
+                <p>
+                    How do you programmatically refer to a specific replica? You
+                    use its index. The <code>replica_west</code> server is at
+                    <code>database.replicas[1]</code>.
+                </p>
+
+                <p>
+                    Now, imagine a new developer adds a new high-priority
+                    replica at the <em>beginning</em> of the list for
+                    organizational purposes.
+                </p>
+
+                <div class="code-block">
+                    <div class="code-header">
+                        <span class="code-language">YAML</span>
+                    </div>
+                    <div class="code-content">
+                        <pre><code><span class="property">database</span>:
+  <span class="property">replicas</span>:
+    - <span class="property">name</span>: new_high_prio_replica <span class="comment"># New replica added</span>
+      <span class="property">host</span>: db-prio.internal
+      <span class="property">timeout</span>: <span class="number">30</span>
+    - <span class="property">name</span>: replica_east          <span class="comment"># Was [0], now [1]</span>
+      <span class="property">host</span>: db-east-1.internal
+      <span class="property">timeout</span>: <span class="number">30</span>
+    - <span class="property">name</span>: replica_west          <span class="comment"># Was [1], now [2]</span>
+      <span class="property">host</span>: db-west-1.internal
+      <span class="property">timeout</span>: <span class="number">30</span></code></pre>
+                    </div>
+                </div>
+
+                <div class="warning-box">
+                    <p>
+                        <strong>Every reference is now broken.</strong> Your
+                        reference to <code>replicas[1]</code> no longer points
+                        to <code>replica_west</code>; it now points to
+                        <code>replica_east</code>. This seemingly harmless
+                        reordering has silently changed the meaning of your
+                        configuration. Automation scripts, monitoring tools, or
+                        application logic relying on these positional paths will
+                        fail or, even worse, operate on the wrong servers.
+                    </p>
+                </div>
+
+                <h3>2. The Ambiguity of Merging</h3>
+
+                <p>
+                    Modern applications often use layered configurations: a
+                    <code>base.yaml</code>, a <code>staging.yaml</code>, and a
+                    <code>production.yaml</code> that override each other.
+                </p>
+
+                <p>
+                    Now, how would you override the <code>timeout</code> for
+                    just <code>replica_west</code> in your production
+                    environment? There is no clean way to do this. You have two
+                    bad options:
+                </p>
+
+                <ul>
+                    <li>
+                        <strong>Replace the Entire Array:</strong> You could
+                        copy the entire <code>replicas</code> array into
+                        <code>production.yaml</code> and change one value. This
+                        is horribly repetitive and violates the DRY (Don't
+                        Repeat Yourself) principle.
+                    </li>
+                    <li>
+                        <strong>"Smart" Merging:</strong> Your application could
+                        try to be clever and merge arrays based on a key (like
+                        <code>name</code>). But this is not a standard feature
+                        of any format; it's application-level logic you have to
+                        invent, and it's prone to bugs. There is no guarantee
+                        that another tool or system will understand your custom
+                        merge strategy.
+                    </li>
+                </ul>
+
+                <p>
+                    This ambiguity makes managing configuration overrides
+                    complex and error-prone.
+                </p>
+
+                <h3>3. The Lack of Inherent Identity</h3>
+
+                <p>
+                    An object in an array is anonymous. Its only identity is its
+                    position—an identity we've already shown to be fragile. It
+                    has a <code>name</code> property inside, but that's just
+                    data. The structure itself doesn't care about it. It has no
+                    unique handle or key you can use to address it reliably.
+                </p>
+
+                <h2>The VIBE Solution: From Anonymous Lists to Named Entities</h2>
+
+                <p>
+                    The VIBE format solves all three problems by forbidding this
+                    pattern. It forces you to rethink the structure. You don't
+                    have a "list" of replicas; you have a
+                    <strong>"collection of named replicas."</strong>
+                </p>
+
+                <p>Here is the same configuration, the VIBE way:</p>
+
+                <div class="code-block">
+                    <div class="code-header">
+                        <span class="code-language">VIBE</span>
+                    </div>
+                    <div class="code-content">
+                        <pre><code><span class="comment"># Stable, explicit, and robust</span>
+<span class="property">database</span> {
+  <span class="property">replicas</span> {
+    <span class="comment"># Each replica is a named object</span>
+    <span class="property">east_1</span> {
+      <span class="property">host</span> <span class="string">db-east-1.internal</span>
+      <span class="property">timeout</span> <span class="number">30</span>
+    }
+    <span class="property">west_1</span> {
+      <span class="property">host</span> <span class="string">db-west-1.internal</span>
+      <span class="property">timeout</span> <span class="number">30</span>
+    }
+    <span class="property">eu_1</span> {
+      <span class="property">host</span> <span class="string">db-eu-1.internal</span>
+      <span class="property">timeout</span> <span class="number">45</span>
+    }
+  }
+}</code></pre>
+                    </div>
+                </div>
+
+                <div class="success-box">
+                    <p>
+                        <strong
+                            >This simple change in structure is profoundly
+                            powerful.</strong
+                        >
+                        Let's see how it solves our problems:
+                    </p>
+                </div>
+
+                <div class="comparison-grid">
+                    <div class="comparison-card">
+                        <h4>
+                            <i
+                                class="fas fa-check-circle"
+                                style="color: var(--success)"
+                            ></i>
+                            Stable, Path-Based References
+                        </h4>
+                        <p>
+                            The <code>west_1</code> replica is now accessible
+                            via the path
+                            <code>database.replicas.west_1</code>. This path is
+                            <strong>stable</strong>. It will never change. You
+                            can add a <code>prio_1</code> replica, remove
+                            <code>eu_1</code>, or completely reorder the file.
+                            It doesn't matter. The reference to
+                            <code>west_1</code> remains explicit, unambiguous,
+                            and unbreakable.
+                        </p>
+                    </div>
+
+                    <div class="comparison-card">
+                        <h4>
+                            <i
+                                class="fas fa-check-circle"
+                                style="color: var(--success)"
+                            ></i>
+                            Clear and Deterministic Merging
+                        </h4>
+                        <p>
+                            Overriding the timeout for <code>west_1</code> in a
+                            production VIBE file is trivial and unambiguous:
+                        </p>
+                        <div class="code-block" style="margin-top: 1rem">
+                            <div class="code-content">
+                                <pre><code><span class="comment"># production.vibe</span>
+<span class="property">database</span> {
+  <span class="property">replicas</span> {
+    <span class="property">west_1</span> {
+      <span class="comment"># This unambiguously overrides the timeout</span>
+      <span class="property">timeout</span> <span class="number">60</span>
+    }
+  }
+}</code></pre>
+                            </div>
+                        </div>
+                        <p>
+                            When this file is layered on top of the base
+                            configuration, the result is clear. The parser
+                            simply travels down the path and replaces the value.
+                            There is no array to merge, no custom logic to
+                            write. It just works.
+                        </p>
+                    </div>
+                </div>
+
+                <h4>
+                    <i
+                        class="fas fa-check-circle"
+                        style="color: var(--success)"
+                    ></i>
+                    Identity is Baked In
+                </h4>
+
+                <p>
+                    In VIBE, the identity of an object is its key. The name
+                    <code>west_1</code> isn't just a piece of data inside the
+                    object; it's the structural handle for the object itself.
+                    The entity is no longer anonymous. It is a first-class
+                    citizen of your configuration tree. This also makes the
+                    configuration more self-documenting.
+                </p>
+
+                <h2>The Right Tool for the Right Job</h2>
+
+                <p>
+                    At this point, you might be thinking, "But some data is
+                    naturally a list!" And you're right. The history of user
+                    comments on a post is an anonymous list. Search results from
+                    an API are an anonymous list.
+                </p>
+
+                <p>
+                    But VIBE isn't designed for data interchange—that's what
+                    JSON is for.
+                    <strong>VIBE is designed for configuration.</strong>
+                </p>
+
+                <div class="highlight-box">
+                    <p>
+                        And configuration is different. When you configure a
+                        system, you are defining a finite, specific set of
+                        components. You have a primary database, not just some
+                        database at index <code>[0]</code>. You have a
+                        "web-tier" logger, not an anonymous logger.
+                    </p>
+                </div>
+
+                <p>
+                    VIBE's syntax gently forces you to acknowledge this reality.
+                    It compels you to name the components of your system, which
+                    is good design practice anyway.
+                </p>
+
+                <p style="font-size: 1.2rem; margin-top: 3rem">
+                    Good design is not just about the features you include; it's
+                    about the constraints you impose. By forbidding arrays of
+                    objects, VIBE removes a convenient but dangerous pattern,
+                    guiding you toward a configuration that is, by its very
+                    structure, more explicit, robust, and stable.
+                    <strong>It's not a missing feature; it's the entire point.</strong>
+                </p>
+
+                <div class="cta-section">
+                    <h3>Ready to Build More Stable Configurations?</h3>
+                    <p style="font-size: 1.1rem; margin-top: 1rem">
+                        Try VIBE and experience configuration that's designed
+                        for stability
+                    </p>
+                    <div class="cta-buttons">
+                        <a href="specification.html" class="btn btn-primary">
+                            <i class="fas fa-book"></i> Read the Specification
+                        </a>
+                        <a
+                            href="https://github.com/1ay1/vibe"
+                            class="btn btn-secondary"
+                        >
+                            <i class="fab fa-github"></i> View on GitHub
+                        </a>
+                    </div>
+                </div>
+            </article>
+        </div>
+
+        <footer>
+            <div class="footer-links">
+                <a href="index.html">Home</a>
+                <a href="specification.html">Documentation</a>
+                <a href="https://github.com/1ay1/vibe">GitHub</a>
+                <a href="https://github.com/1ay1/vibe/issues">Issues</a>
+                <a href="https://github.com/1ay1/vibe/releases">Releases</a>
+            </div>
+            <p style="color: var(--text-muted)">
+                © 2025 VIBE Project. MIT Licensed. Keep calm and VIBE on 🌊
+            </p>
+        </footer>
+
+        <script>
+            function toggleTheme() {
+                const html = document.documentElement;
+                const currentTheme = html.getAttribute("data-theme");
+                const newTheme = currentTheme === "light" ? "dark" : "light";
+
+                html.setAttribute("data-theme", newTheme);
+                localStorage.setItem("theme", newTheme);
+
+                const icon =
+                    document.querySelector(".theme-icon");
+                icon.textContent = newTheme === "light" ? "☀️" : "🌙";
+            }
+
+            // Initialize theme from localStorage
+            const savedTheme = localStorage.getItem("theme") || "dark";
+            document.documentElement.setAttribute("data-theme", savedTheme);
+            const icon = document.querySelector(".theme-icon");
+            if (icon) {
+                icon.textContent = savedTheme === "light" ? "☀️" : "🌙";
+            }
+        </script>
+    </body>
+</html>
