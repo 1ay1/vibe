@@ -719,43 +719,33 @@
                     </p>
                 </div>
 
-                <div class="comparison-grid">
-                    <div class="comparison-card">
-                        <h4>
-                            <i
-                                class="fas fa-check-circle"
-                                style="color: var(--success)"
-                            ></i>
-                            Stable, Path-Based References
-                        </h4>
-                        <p>
-                            The <code>west_1</code> replica is now accessible
-                            via the path
-                            <code>database.replicas.west_1</code>. This path is
-                            <strong>stable</strong>. It will never change. You
-                            can add a <code>prio_1</code> replica, remove
-                            <code>eu_1</code>, or completely reorder the file.
-                            It doesn't matter. The reference to
-                            <code>west_1</code> remains explicit, unambiguous,
-                            and unbreakable.
-                        </p>
-                    </div>
+                <h3>1. Stable, Path-Based References</h3>
 
-                    <div class="comparison-card">
-                        <h4>
-                            <i
-                                class="fas fa-check-circle"
-                                style="color: var(--success)"
-                            ></i>
-                            Clear and Deterministic Merging
-                        </h4>
-                        <p>
-                            Overriding the timeout for <code>west_1</code> in a
-                            production VIBE file is trivial and unambiguous:
-                        </p>
-                        <div class="code-block" style="margin-top: 1rem">
-                            <div class="code-content">
-                                <pre><code><span class="comment"># production.vibe</span>
+                <p>
+                    The <code>west_1</code> replica is now accessible
+                    via the path
+                    <code>database.replicas.west_1</code>. This path is
+                    <strong>stable</strong>. It will never change. You
+                    can add a <code>prio_1</code> replica, remove
+                    <code>eu_1</code>, or completely reorder the file.
+                    It doesn't matter. The reference to
+                    <code>west_1</code> remains explicit, unambiguous,
+                    and unbreakable.
+                </p>
+
+                <h3>2. Clear and Deterministic Merging</h3>
+
+                <p>
+                    Overriding the timeout for <code>west_1</code> in a
+                    production VIBE file is trivial and unambiguous:
+                </p>
+
+                <div class="code-block"></div>
+                    <div class="code-header">
+                        <span class="code-language">VIBE</span>
+                    </div>
+                    <div class="code-content">
+                        <pre><code><span class="comment"># production.vibe</span>
 <span class="property">database</span> {
   <span class="property">replicas</span> {
     <span class="property">west_1</span> {
@@ -764,25 +754,18 @@
     }
   }
 }</code></pre>
-                            </div>
-                        </div>
-                        <p>
-                            When this file is layered on top of the base
-                            configuration, the result is clear. The parser
-                            simply travels down the path and replaces the value.
-                            There is no array to merge, no custom logic to
-                            write. It just works.
-                        </p>
                     </div>
                 </div>
 
-                <h4>
-                    <i
-                        class="fas fa-check-circle"
-                        style="color: var(--success)"
-                    ></i>
-                    Identity is Baked In
-                </h4>
+                <p>
+                    When this file is layered on top of the base
+                    configuration, the result is clear. The parser
+                    simply travels down the path and replaces the value.
+                    There is no array to merge, no custom logic to
+                    write. It just works.
+                </p>
+
+                <h3>3. Identity is Baked In</h3>
 
                 <p>
                     In VIBE, the identity of an object is its key. The name
