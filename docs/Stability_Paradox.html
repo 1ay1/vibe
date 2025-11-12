@@ -111,11 +111,63 @@
                 font-weight: 900;
                 color: var(--text-primary);
                 text-decoration: none;
+                display: flex;
+                align-items: center;
                 transition: all 0.3s ease;
             }
 
-            .logo:hover {
+            .logo-container {
+                display: flex;
+                align-items: center;
+                gap: 0.5rem;
+            }
+
+            .logo-svg {
+                height: 56px;
+                width: auto;
                 color: var(--primary);
+                transition: all 0.3s ease;
+                filter: drop-shadow(0 2px 8px rgba(99, 102, 241, 0.3));
+            }
+
+            .logo:hover .logo-svg {
+                transform: scale(1.1);
+                filter: drop-shadow(0 4px 12px rgba(99, 102, 241, 0.5));
+            }
+
+            .syntax-group {
+                animation: syntaxFloat 4s ease-in-out infinite;
+            }
+
+            .syntax-brace-open {
+                animation-delay: 0s;
+            }
+
+            .syntax-bracket-open {
+                animation-delay: 0.5s;
+            }
+
+            .syntax-bracket-close {
+                animation-delay: 1s;
+            }
+
+            .syntax-brace-close {
+                animation-delay: 1.5s;
+            }
+
+            @keyframes syntaxFloat {
+                0%, 100% {
+                    transform: translateY(0);
+                }
+                50% {
+                    transform: translateY(-3px);
+                }
+            }
+
+            .logo:hover .syntax-group path,
+            .logo:hover .syntax-group rect {
+                stroke: #8b5cf6;
+                filter: drop-shadow(0 0 8px rgba(139, 92, 246, 0.6));
             }
 
             .nav-links {
@@ -129,10 +181,28 @@
                 text-decoration: none;
                 font-weight: 500;
                 transition: color 0.3s ease;
+                padding: 0.5rem 0;
             }
 
             .nav-links a:hover {
                 color: var(--primary);
+            }
+
+            .github-btn {
+                background: var(--bg-tertiary);
+                color: var(--text-primary) !important;
+                padding: 0.5rem 1rem !important;
+                border-radius: 8px;
+                display: inline-flex;
+                align-items: center;
+                gap: 0.5rem;
+                transition: all 0.3s ease;
+            }
+
+            .github-btn:hover {
+                background: var(--primary);
+                color: white !important;
+                transform: translateY(-2px);
             }
 
             .theme-switcher {
@@ -483,11 +553,134 @@
     <body>
         <header>
             <nav>
-                <a href="index.html" class="logo">VIBE 🌊</a>
+                <a href="index.html" class="logo">
+                    <div class="logo-container">
+                        <svg
+                            class="logo-svg"
+                            viewBox="0 0 80 40"
+                            xmlns="http://www.w3.org/2000/svg"
+                        >
+                            <!-- Background circles for depth -->
+                            <circle
+                                cx="40"
+                                cy="20"
+                                r="18"
+                                fill="url(#logoGradient)"
+                                opacity="0.1"
+                            />
+                            <circle
+                                cx="40"
+                                cy="20"
+                                r="14"
+                                fill="url(#logoGradient)"
+                                opacity="0.2"
+                            />
+
+                            <!-- Syntax symbols with modern styling -->
+                            <g class="syntax-group">
+                                <!-- Curly brace { -->
+                                <g class="syntax-brace-open">
+                                    <path
+                                        d="M18 8 Q15 8 15 11 L15 16 Q15 19 12 19 Q15 19 15 22 L15 27 Q15 30 18 30"
+                                        stroke="currentColor"
+                                        stroke-width="3.2"
+                                        fill="none"
+                                        stroke-linecap="round"
+                                        stroke-linejoin="round"
+                                    />
+                                </g>
+
+                                <!-- Square bracket [ -->
+                                <g class="syntax-bracket-open">
+                                    <path
+                                        d="M26 9 Q24 9 24 11 L24 27 Q24 29 26 29 L30 29"
+                                        stroke="currentColor"
+                                        stroke-width="3.2"
+                                        fill="none"
+                                        stroke-linecap="round"
+                                    />
+                                    <path
+                                        d="M26 9 L30 9"
+                                        stroke="currentColor"
+                                        stroke-width="3.2"
+                                        fill="none"
+                                        stroke-linecap="round"
+                                    />
+                                </g>
+
+                                <!-- Square bracket ] -->
+                                <g class="syntax-bracket-close">
+                                    <path
+                                        d="M54 9 Q56 9 56 11 L56 27 Q56 29 54 29 L50 29"
+                                        stroke="currentColor"
+                                        stroke-width="3.2"
+                                        fill="none"
+                                        stroke-linecap="round"
+                                    />
+                                    <path
+                                        d="M54 9 L50 9"
+                                        stroke="currentColor"
+                                        stroke-width="3.2"
+                                        fill="none"
+                                        stroke-linecap="round"
+                                    />
+                                </g>
+
+                                <!-- Curly brace } -->
+                                <g class="syntax-brace-close">
+                                    <path
+                                        d="M62 8 Q65 8 65 11 L65 16 Q65 19 68 19 Q65 19 65 22 L65 27 Q65 30 62 30"
+                                        stroke="currentColor"
+                                        stroke-width="3.2"
+                                        fill="none"
+                                        stroke-linecap="round"
+                                        stroke-linejoin="round"
+                                    />
+                                </g>
+                            </g>
+
+                            <!-- Gradient definition -->
+                            <defs>
+                                <linearGradient
+                                    id="logoGradient"
+                                    x1="0%"
+                                    y1="0%"
+                                    x2="100%"
+                                    y2="100%"
+                                >
+                                    <stop
+                                        offset="0%"
+                                        style="
+                                            stop-color: #6366f1;
+                                            stop-opacity: 1;
+                                        "
+                                    />
+                                    <stop
+                                        offset="100%"
+                                        style="
+                                            stop-color: #8b5cf6;
+                                            stop-opacity: 1;
+                                        "
+                                    />
+                                </linearGradient>
+                            </defs>
+                        </svg>
+                        <span
+                            style="
+                                font-family:
+                                    &quot;IBM Plex Mono&quot;, monospace;
+                                font-weight: 700;
+                                font-size: 1.2rem;
+                                margin-left: 0.5rem;
+                            "
+                            >VIBE</span
+                        >
+                    </div>
+                </a>
                 <div class="nav-links">
                     <a href="index.html">Home</a>
                     <a href="specification.html">Docs</a>
-                    <a href="https://github.com/1ay1/vibe">
+                    <a href="https://github.com/1ay1/vibe" class="github-btn">
                         <i class="fab fa-github"></i> GitHub
                     </a>
                 </div>
