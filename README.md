@@ -69,7 +69,9 @@ make
 
 VIBE includes a powerful **interactive parsing tool** with a beautiful TUI (Terminal User Interface) that visualizes the parsing process step-by-step:
 
-![VIBE Parser Tool Screenshot](docs/parser_tool_ss.png)
+![VIBE Parser Tool - 6-panel TUI interface with syntax highlighting and real-time parsing visualization](docs/parser_tool_ss.png)
+
+*Screenshot shows the parser tool's multi-panel interface displaying real-time parsing visualization with syntax highlighting, progress tracking, API call traces, and keyboard controls.*
 
 ```bash
 make parser_tool
