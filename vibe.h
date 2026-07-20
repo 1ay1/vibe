@@ -1144,32 +1144,51 @@ static Token next_token(VibeParser* parser) {
     }
 
     if (is_unquoted_start_char(c)) {
+        const char* input = parser->input;
+        size_t len = parser->length;
         size_t start = parser->pos;
+        size_t pos = start;
 
         /* A leading '-' immediately followed by a digit is part of a number. */
-        if (c == '-' && parser->pos + 1 < parser->length &&
-            isdigit((unsigned char)parser->input[parser->pos + 1])) {
-            parser->pos++;
-            parser->column++;
+        if (c == '-' && pos + 1 < len && isdigit((unsigned char)input[pos + 1])) {
+            pos++;
         }
 
-        while (parser->pos < parser->length &&
-               is_unquoted_string_char(parser->input[parser->pos])) {
-            parser->pos++;
-            parser->column++;
+        /* Scan the token in one tight loop over locals (no per-byte writes to
+         * parser->pos/column), and classify ON THE FLY: track whether every
+         * byte so far is an identifier char so we never re-walk the token to
+         * decide IDENTIFIER vs STRING. */
+        bool all_ident = is_identifier_start((unsigned char)input[start]);
+        while (pos < len) {
+            unsigned char ch = (unsigned char)input[pos];
+            if (!is_unquoted_string_char(ch)) break;
+            if (all_ident && !is_identifier_char(ch)) all_ident = false;
+            pos++;
         }
+        size_t tlen = pos - start;
 
-        token.value = vibe__strndup(parser->input + start, parser->pos - start);
+        /* Advance the parser cursor once. Column tracking is per-byte for ASCII
+         * tokens; a token can only contain multi-byte UTF-8 when it is a STRING
+         * (identifiers/numbers are ASCII), and column is a diagnostic aid, so
+         * counting bytes here is acceptable and matches the previous behaviour
+         * for the common ASCII case. */
+        parser->pos = pos;
+        parser->column += tlen;
+
+        token.value = vibe__strndup(input + start, tlen);
         if (!token.value) {
             set_error(parser, VIBE_ERROR_OUT_OF_MEMORY, "Out of memory");
             token.type = TOKEN_ERROR;
             return token;
         }
 
-        if (strcmp(token.value, "true") == 0 || strcmp(token.value, "false") == 0) {
+        /* Classify. `true`/`false` are the only keywords; check length first so
+         * the strcmp only runs on 4/5-byte tokens. */
+        if ((tlen == 4 && memcmp(token.value, "true", 4) == 0) ||
+            (tlen == 5 && memcmp(token.value, "false", 5) == 0)) {
             token.type = TOKEN_BOOLEAN;
         } else if (is_valid_number(token.value)) {
-            if (strlen(token.value) > parser->limits.max_number_digits) {
+            if (tlen > parser->limits.max_number_digits) {
                 set_error(parser, VIBE_ERROR_LIMIT_EXCEEDED,
                           "Numeric token exceeds the maximum of %zu characters",
                           parser->limits.max_number_digits);
@@ -1178,14 +1197,9 @@ static Token next_token(VibeParser* parser) {
                 return token;
             }
             token.type = TOKEN_NUMBER;
-        } else if (is_identifier_start(token.value[0])) {
-            bool ident = true;
-            for (const char* p = token.value; *p; p++) {
-                if (!is_identifier_char(*p)) { ident = false; break; }
-            }
-            token.type = ident ? TOKEN_IDENTIFIER : TOKEN_STRING;
         } else {
-            token.type = TOKEN_STRING;
+            /* all_ident was computed during the scan; no second walk. */
+            token.type = all_ident ? TOKEN_IDENTIFIER : TOKEN_STRING;
         }
         return token;
     }
@@ -1439,12 +1453,17 @@ static size_t vibe__next_pow2(size_t n) {
     return c;
 }
 
-/* Insert entry #slot into an already-sized index (no growth, no dup check). */
-static void vibe__index_put(uint32_t* index, size_t cap, const char* key, size_t slot) {
+/* Insert entry #slot into an already-sized index using a precomputed hash. */
+static void vibe__index_put_h(uint32_t* index, size_t cap, uint32_t hash, size_t slot) {
     size_t mask = cap - 1;
-    size_t i = vibe__hash(key) & mask;
+    size_t i = hash & mask;
     while (index[i] != 0) i = (i + 1) & mask;   /* linear probe */
     index[i] = (uint32_t)(slot + 1);            /* store slot+1 (0 = empty) */
+}
+
+/* Insert entry #slot into an already-sized index (no growth, no dup check). */
+static void vibe__index_put(uint32_t* index, size_t cap, const char* key, size_t slot) {
+    vibe__index_put_h(index, cap, vibe__hash(key), slot);
 }
 
 /* Build or rebuild obj->index to hold obj->count entries comfortably. */
@@ -1457,8 +1476,12 @@ static void vibe__obj_reindex(VibeObject* obj, size_t want) {
         obj->index_cap = 0;
         return;
     }
-    size_t want2 = (want > SIZE_MAX / 2) ? SIZE_MAX : want * 2;
-    size_t cap = vibe__next_pow2(want2);
+    /* Size the table for ~4x the current entry count. A larger table means the
+     * insert path trips "count*2 > cap" (a full rehash) only about half as
+     * often, so over a big parse we do fewer O(n) rebuilds — at the cost of a
+     * little more memory and a lower load factor (both fine here). */
+    size_t want4 = (want > SIZE_MAX / 4) ? SIZE_MAX : want * 4;
+    size_t cap = vibe__next_pow2(want4);
     uint32_t* index = (uint32_t*)vibe__calloc(cap, sizeof(uint32_t));
     if (!index) return;                         /* stay index-less; still correct */
     for (size_t s = 0; s < obj->count; s++)
@@ -1468,11 +1491,11 @@ static void vibe__obj_reindex(VibeObject* obj, size_t want) {
     obj->index_cap = cap;
 }
 
-/* Find the entry slot for key, or (size_t)-1. Uses the index when present. */
-static size_t vibe__obj_find(const VibeObject* obj, const char* key) {
+/* Find the entry slot for key using a precomputed hash, or (size_t)-1. */
+static size_t vibe__obj_find_h(const VibeObject* obj, const char* key, uint32_t hash) {
     if (obj->index) {
         size_t mask = obj->index_cap - 1;
-        size_t i = vibe__hash(key) & mask;
+        size_t i = hash & mask;
         for (;;) {
             uint32_t slot = obj->index[i];
             if (slot == 0) return (size_t)-1;
@@ -1485,26 +1508,32 @@ static size_t vibe__obj_find(const VibeObject* obj, const char* key) {
     return (size_t)-1;
 }
 
-bool vibe_object_set(VibeObject* obj, const char* key, VibeValue* value) {
-    if (!obj || !key || !value) { vibe_value_free(value); return false; }
+/* Find the entry slot for key, or (size_t)-1. Uses the index when present. */
+static size_t vibe__obj_find(const VibeObject* obj, const char* key) {
+    return vibe__obj_find_h(obj, key, vibe__hash(key));
+}
 
-    size_t found = vibe__obj_find(obj, key);
+/* Core insert. `kdup` MUST be a heap key this function takes ownership of
+ * (freed on any failure, and on a last-wins replace where it isn't stored).
+ * `khash` is vibe__hash(kdup) precomputed by the caller so we never hash the
+ * same key twice. vibe_object_set() is the public wrapper that dups the key. */
+static bool vibe__object_put_owned(VibeObject* obj, char* kdup, uint32_t khash, VibeValue* value) {
+    size_t found = vibe__obj_find_h(obj, kdup, khash);
     if (found != (size_t)-1) {
         vibe_value_free(obj->entries[found].value);
         obj->entries[found].value = value; /* last-wins */
+        vibe__free(kdup);                  /* existing key kept; drop the dup */
         return true;
     }
 
     if (obj->count >= obj->capacity) {
         size_t ncap = vibe__grow_cap(obj->capacity, obj->count + 1, sizeof(VibeObjectEntry));
         VibeObjectEntry* ne = ncap ? (VibeObjectEntry*)vibe__realloc_array(obj->entries, ncap, sizeof(VibeObjectEntry)) : NULL;
-        if (!ne) { vibe_value_free(value); return false; }
+        if (!ne) { vibe_value_free(value); vibe__free(kdup); return false; }
         obj->entries = ne;
         obj->capacity = ncap;
     }
 
-    char* kdup = vibe__strdup(key);
-    if (!kdup) { vibe_value_free(value); return false; }
     size_t slot = obj->count;
     obj->entries[slot].key = kdup;
     obj->entries[slot].value = value;
@@ -1513,11 +1542,18 @@ bool vibe_object_set(VibeObject* obj, const char* key, VibeValue* value) {
     /* Maintain the hash index once the object is big enough to benefit. */
     if (obj->index) {
         if (obj->count * 2 > obj->index_cap) vibe__obj_reindex(obj, obj->count);
-        else vibe__index_put(obj->index, obj->index_cap, kdup, slot);
+        else vibe__index_put_h(obj->index, obj->index_cap, khash, slot);
     } else if (obj->count >= VIBE_OBJECT_HASH_THRESHOLD) {
         vibe__obj_reindex(obj, obj->count);
     }
     return true;
+}
+
+bool vibe_object_set(VibeObject* obj, const char* key, VibeValue* value) {
+    if (!obj || !key || !value) { vibe_value_free(value); return false; }
+    char* kdup = vibe__strdup(key);
+    if (!kdup) { vibe_value_free(value); return false; }
+    return vibe__object_put_owned(obj, kdup, vibe__hash(kdup), value);
 }
 
 VibeValue* vibe_object_get(VibeObject* obj, const char* key) {
@@ -1875,7 +1911,11 @@ VibeValue* vibe_parse_buffer(VibeParser* parser, const char* data, size_t length
         if (frame->state == STATE_ROOT || frame->state == STATE_OBJECT) {
             /* Keys may be bare identifiers or quoted strings. */
             if (token.type == TOKEN_IDENTIFIER || token.type == TOKEN_STRING) {
-                current_key = vibe__strdup(token.value);
+                /* Take ownership of the token's heap key buffer directly — no
+                 * extra strdup. token_free() below must not free it, so we null
+                 * token.value after the steal. */
+                current_key = token.value;
+                token.value = NULL;
                 token_free(&token);
                 if (!current_key) { set_error(parser, VIBE_ERROR_OUT_OF_MEMORY, "Out of memory"); VIBE_FAIL(); }
 
@@ -1890,9 +1930,13 @@ VibeValue* vibe_parse_buffer(VibeParser* parser, const char* data, size_t length
                     VIBE_FAIL();
                 }
 
+                /* Hash the key ONCE and reuse it for the duplicate-key limit
+                 * check and the insert below. */
+                uint32_t khash = vibe__hash(current_key);
+
                 VibeObject* obj = frame->container->as_object;
                 if (obj->count >= parser->limits.max_object_keys &&
-                    !vibe_object_get(obj, current_key)) {
+                    vibe__obj_find_h(obj, current_key, khash) == (size_t)-1) {
                     set_error(parser, VIBE_ERROR_LIMIT_EXCEEDED,
                               "Object exceeds the maximum of %zu keys",
                               parser->limits.max_object_keys);
@@ -1906,11 +1950,13 @@ VibeValue* vibe_parse_buffer(VibeParser* parser, const char* data, size_t length
                     token_free(&next);
                     VibeValue* child = vibe_value_new_object();
                     if (!child) { set_error(parser, VIBE_ERROR_OUT_OF_MEMORY, "Out of memory"); VIBE_FAIL(); }
-                    if (!vibe_object_set(obj, current_key, child)) {
-                        /* set freed `child`; do not keep a dangling container */
+                    if (!vibe__object_put_owned(obj, current_key, khash, child)) {
+                        /* put freed both `child` and `current_key` */
+                        current_key = NULL;
                         set_error(parser, VIBE_ERROR_OUT_OF_MEMORY, "Out of memory");
                         VIBE_FAIL();
                     }
+                    current_key = NULL;   /* ownership moved into the object */
                     depth++;
                     if ((size_t)depth > parser->limits.max_depth) {
                         set_error(parser, VIBE_ERROR_LIMIT_EXCEEDED,
@@ -1924,10 +1970,12 @@ VibeValue* vibe_parse_buffer(VibeParser* parser, const char* data, size_t length
                     token_free(&next);
                     VibeValue* child = vibe_value_new_array();
                     if (!child) { set_error(parser, VIBE_ERROR_OUT_OF_MEMORY, "Out of memory"); VIBE_FAIL(); }
-                    if (!vibe_object_set(obj, current_key, child)) {
+                    if (!vibe__object_put_owned(obj, current_key, khash, child)) {
+                        current_key = NULL;
                         set_error(parser, VIBE_ERROR_OUT_OF_MEMORY, "Out of memory");
                         VIBE_FAIL();
                     }
+                    current_key = NULL;
                     depth++;
                     if ((size_t)depth > parser->limits.max_depth) {
                         set_error(parser, VIBE_ERROR_LIMIT_EXCEEDED,
@@ -1946,15 +1994,15 @@ VibeValue* vibe_parse_buffer(VibeParser* parser, const char* data, size_t length
                         token_free(&next);
                         VIBE_FAIL();
                     }
-                    if (!vibe_object_set(obj, current_key, val)) {
+                    if (!vibe__object_put_owned(obj, current_key, khash, val)) {
+                        current_key = NULL;
                         set_error(parser, VIBE_ERROR_OUT_OF_MEMORY, "Out of memory");
                         token_free(&next);
                         VIBE_FAIL();
                     }
+                    current_key = NULL;
                     token_free(&next);
                 }
-                vibe__free(current_key);
-                current_key = NULL;
             } else if (token.type == TOKEN_RIGHT_BRACE) {
                 token_free(&token);
                 if (depth > 0) {
