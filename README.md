@@ -372,6 +372,24 @@ void vibe_error_free(VibeError* error);
 
 For the complete format specification, see [SPECIFICATION.md](SPECIFICATION.md).
 
+## 🌍 Language Bindings
+
+VIBE's reference parser is a small C library (**libvibe**) with a stable C ABI,
+so any language with a foreign-function interface can read and write VIBE
+without re-implementing the parser. The [`bindings/`](bindings/) directory has a
+real, runnable binding for **25 languages** — 24 of them verified end-to-end by
+actually executing them against `libvibe.so`:
+
+> Python · Ruby · Lua · Perl · PHP · Node.js · JavaScript (WebAssembly) ·
+> Julia · Rust · Go · C++ · Zig · Swift · D · Nim · Crystal · Java · Kotlin ·
+> C#/.NET · Haskell · OCaml · Racket · Guile · CHICKEN Scheme · Tcl
+
+Every binding parses the same `sample.vibe` and asserts the same values, so the
+bindings cross-check each other. Run the whole matrix with
+[`bindings/run_all.sh`](bindings/run_all.sh) (missing toolchains are skipped, not
+failed). See [bindings/README.md](bindings/README.md) for the shared ABI and a
+template for adding your own — if your language speaks C, it can speak VIBE.
+
 ## 🎯 Why VIBE?
 
 VIBE doesn't win a feature checklist — it makes a **bet**: give up two "features"

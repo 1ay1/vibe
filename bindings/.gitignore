@@ -1,0 +1,29 @@
+# Build artifacts produced by the bindings — regenerate with run_all.sh / build.sh.
+
+# Node
+node/node_modules/
+node/package.json
+node/package-lock.json
+
+# .NET
+csharp/bin/
+csharp/obj/
+
+# WebAssembly (regenerate: cd wasm && ./build.sh — needs emscripten)
+wasm/vibe.mjs
+wasm/vibe.wasm
+
+# Compiled outputs / caches
+*.o
+*.hi
+*.cmi
+*.cmo
+*.cmx
+*.jar
+nim/vibe
+d/vibe
+zig/.zig-cache/
+
+# ...but the Swift module map is a source file, not a generated .mod artifact
+# (the repo-root .gitignore's *.mod* rule would otherwise swallow it).
+!swift/module.modulemap

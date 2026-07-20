@@ -1,0 +1,4 @@
+module CVibe {
+    header "../../vibe.h"
+    export *
+}

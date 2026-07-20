@@ -1,0 +1,15 @@
+# Shared smoke-test document for every libvibe language binding.
+# Every binding parses THIS file and asserts the same expected values,
+# so "does the Rust binding agree with the Python binding" is a real test.
+
+name    "libvibe"
+answer  42
+pi      3.14159
+enabled true
+
+server {
+  host "localhost"
+  port 8080
+}
+
+ports [80 443 8080]
