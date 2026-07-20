@@ -45,7 +45,7 @@ public final class Vibe {
         String text = new String(java.nio.file.Files.readAllBytes(sample),
                                  java.nio.charset.StandardCharsets.UTF_8);
 
-        check(version().equals("1.1.0"), "version");
+        check(version().equals("1.2.0"), "version");
 
         long doc = parse(text);
         check(getString(doc, "name").equals("libvibe"), "name");

@@ -73,7 +73,7 @@ pub fn version() []const u8 {
 test "libvibe native module round-trips sample.vibe" {
     const sample = @embedFile("sample.vibe");
 
-    try std.testing.expectEqualStrings("1.1.0", version());
+    try std.testing.expectEqualStrings("1.2.0", version());
 
     const doc = try Doc.parse(sample);
     defer doc.deinit();

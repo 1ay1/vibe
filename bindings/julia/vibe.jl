@@ -77,7 +77,7 @@ if abspath(PROGRAM_FILE) == @__FILE__
         got != want && (ok[] = false)
         println("  [$(got == want ? "ok " : "BAD")] $name = $(repr(got))")
     end
-    check("version", Vibe.version(), "1.1.0")
+    check("version", Vibe.version(), "1.2.0")
     check("name", Vibe.get_string(doc, "name"), "libvibe")
     check("answer", Vibe.get_int(doc, "answer"), 42)
     check("pi", round(Vibe.get_float(doc, "pi"), digits=5), 3.14159)

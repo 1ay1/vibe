@@ -38,7 +38,7 @@ sub check {
     printf "  [%s] %s = %s\n", $pass ? "ok " : "BAD", $name, $got // "(undef)";
 }
 
-check( "version",     vibe_version(),                 "1.1.0" );
+check( "version",     vibe_version(),                 "1.2.0" );
 check( "name",        vibe_get_string( $v, "name" ),  "libvibe" );
 check( "answer",      vibe_get_int( $v, "answer" ),   42 );
 check( "pi",          sprintf( "%.5f", vibe_get_float( $v, "pi" ) ), "3.14159" );

@@ -14,7 +14,7 @@ make
 `make` builds:
 
 - `libvibe.a` — static library
-- `libvibe.so.1.1.0` (with SONAME `libvibe.so.1`; `.dylib` on macOS) — shared library
+- `libvibe.so.1.2.0` (with SONAME `libvibe.so.1`; `.dylib` on macOS) — shared library
 - `vibe` — the command-line tool
 - `vibe_example` — the example program
 
@@ -134,7 +134,7 @@ sudo make install && sudo ldconfig
 xcode-select --install         # provides clang + make
 git clone https://github.com/1ay1/vibe.git && cd vibe
 make && make test-all
-sudo make install              # builds libvibe.1.1.0.dylib
+sudo make install              # builds libvibe.1.2.0.dylib
 ```
 
 ### Windows

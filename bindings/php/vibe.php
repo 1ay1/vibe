@@ -46,7 +46,7 @@ function getStr($ffi, $v, $path) {
     return $p ?? "";
 }
 
-check($ok, "version", $ffi->vibe_version(), "1.1.0");
+check($ok, "version", $ffi->vibe_version(), "1.2.0");
 check($ok, "name", getStr($ffi, $v, "name"), "libvibe");
 check($ok, "answer", $ffi->vibe_get_int($v, "answer"), 42);
 check($ok, "pi", round($ffi->vibe_get_float($v, "pi"), 5), 3.14159);

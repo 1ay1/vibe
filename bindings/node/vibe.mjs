@@ -41,7 +41,7 @@ const check = (name, got, want) => {
   console.log(`  [${pass ? "ok " : "BAD"}] ${name} = ${JSON.stringify(got)}`);
 };
 
-check("version", vibe_version(), "1.1.0");
+check("version", vibe_version(), "1.2.0");
 check("name", vibe_get_string(v, "name"), "libvibe");
 check("answer", Number(vibe_get_int(v, "answer")), 42);
 check("pi", Math.round(vibe_get_float(v, "pi") * 100000) / 100000, 3.14159);

@@ -128,7 +128,7 @@ mod tests {
 
     #[test]
     fn round_trips_sample() {
-        assert_eq!(version(), "1.1.0");
+        assert_eq!(version(), "1.2.0");
         let doc = Doc::parse(SAMPLE).unwrap();
         assert_eq!(doc.get_string("name").as_deref(), Some("libvibe"));
         assert_eq!(doc.get_int("answer"), 42);

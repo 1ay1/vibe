@@ -12,7 +12,7 @@ SAMPLE = os.path.join(HERE, "..", "..", "sample.vibe")
 with open(SAMPLE, "rb") as f:
     data = f.read()
 
-assert vibe.version() == "1.1.0", vibe.version()
+assert vibe.version() == "1.2.0", vibe.version()
 
 doc = vibe.parse(data)
 assert doc.get_string("name") == "libvibe"

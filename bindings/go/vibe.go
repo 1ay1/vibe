@@ -113,7 +113,7 @@ func main() {
 		}
 		fmt.Printf("  [%s] %s = %v\n", flag, name, got)
 	}
-	check("version", version(), "1.1.0")
+	check("version", version(), "1.2.0")
 	check("name", doc.getString("name"), "libvibe")
 	check("answer", doc.getInt("answer"), int64(42))
 	check("pi", math.Round(doc.getFloat("pi")*100000)/100000, 3.14159)

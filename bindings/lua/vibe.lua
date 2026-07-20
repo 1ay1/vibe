@@ -83,7 +83,7 @@ if arg and (arg[0] or ""):match("vibe%.lua$") then
     if got ~= want then ok = false end
     print(("  [%s] %s = %s"):format(got == want and "ok " or "BAD", name, tostring(got)))
   end
-  check("version", vibe.version(), "1.1.0")
+  check("version", vibe.version(), "1.2.0")
   check("name", doc:get_string("name"), "libvibe")
   check("answer", doc:get_int("answer"), 42)
   check("pi", tonumber(string.format("%.5f", doc:get_float("pi"))), 3.14159)

@@ -40,7 +40,7 @@ const check = (name, got, want) => {
   console.log(`  [${pass ? "ok " : "BAD"}] ${name} = ${JSON.stringify(got)}`);
 };
 
-check("version", M.UTF8ToString(version()), "1.1.0");
+check("version", M.UTF8ToString(version()), "1.2.0");
 check("name", M.UTF8ToString(getString(v, "name")), "libvibe");
 check("answer", Number(getInt(v, "answer")), 42);
 check("pi", Math.round(getFloat(v, "pi") * 100000) / 100000, 3.14159);

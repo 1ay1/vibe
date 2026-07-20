@@ -86,7 +86,7 @@ int main() {
         std::ostringstream v; v << got;
         std::printf("  [%s] %s = %s\n", pass ? "ok " : "BAD", name, v.str().c_str());
     };
-    check("version", vibe::version(), std::string("1.1.0"));
+    check("version", vibe::version(), std::string("1.2.0"));
     check("name", doc.get_string("name"), std::string("libvibe"));
     check("answer", doc.get_int("answer"), (int64_t)42);
     check("pi", std::round(doc.get_float("pi") * 100000) / 100000, 3.14159);

@@ -64,9 +64,9 @@ extern "C" {
  * is the version of the language it implements. They advance independently.
  */
 #define VIBE_VERSION_MAJOR 1
-#define VIBE_VERSION_MINOR 1
+#define VIBE_VERSION_MINOR 2
 #define VIBE_VERSION_PATCH 0
-#define VIBE_VERSION_STRING "1.1.0"
+#define VIBE_VERSION_STRING "1.2.0"
 #define VIBE_VERSION_NUMBER \
     (VIBE_VERSION_MAJOR * 10000 + VIBE_VERSION_MINOR * 100 + VIBE_VERSION_PATCH)
 
@@ -250,7 +250,7 @@ VIBE_API void  vibe_free(void* ptr);
  * VERSION QUERIES
  * ============================================================================ */
 
-/** Runtime library version string, e.g. "1.1.0". */
+/** Runtime library version string, e.g. "1.2.0". */
 VIBE_API const char* vibe_version(void);
 /** Runtime library version as MAJOR*10000 + MINOR*100 + PATCH. */
 VIBE_API int vibe_version_number(void);
@@ -402,8 +402,11 @@ VIBE_API bool vibe_get_bool_or(VibeValue* value, const char* path, bool fallback
  * ============================================================================ */
 
 /** Insert or replace `key` in `object`, taking ownership of `value`. Replacing
- *  an existing key frees the old value (last-wins, matching the parser). */
-VIBE_API void vibe_object_set(VibeObject* object, const char* key, VibeValue* value);
+ *  an existing key frees the old value (last-wins, matching the parser).
+ *  Returns true if the value is now stored under `key`; returns false only on
+ *  allocation failure or a NULL argument, in which case `value` is freed (so
+ *  ownership is always consumed and a failed set never leaks). */
+VIBE_API bool vibe_object_set(VibeObject* object, const char* key, VibeValue* value);
 
 /** Look up a key. Returns the stored value (not a copy), or NULL if absent. */
 VIBE_API VibeValue* vibe_object_get(VibeObject* object, const char* key);
@@ -433,9 +436,11 @@ VIBE_API bool vibe_object_set_bool(VibeObject* object, const char* key, bool val
 VIBE_API bool vibe_object_set_null(VibeObject* object, const char* key);
 
 /** Append `value` to `array`, taking ownership. Per the First Law, arrays hold
- *  scalars only: pushing an ARRAY or OBJECT is rejected (the value is freed and
- *  the call is a no-op). */
-VIBE_API void vibe_array_push(VibeArray* array, VibeValue* value);
+ *  scalars only: pushing an ARRAY or OBJECT is rejected. Returns true if the
+ *  value was appended; returns false on a First-Law violation, allocation
+ *  failure, or a NULL argument — in every failure case `value` is freed (so
+ *  ownership is always consumed and a rejected push never leaks). */
+VIBE_API bool vibe_array_push(VibeArray* array, VibeValue* value);
 
 /** Element at `index` (not a copy), or NULL if out of range. */
 VIBE_API VibeValue* vibe_array_get(VibeArray* array, size_t index);
@@ -1245,7 +1250,7 @@ VibeValue* vibe_value_clone(const VibeValue* value) {
             for (size_t i = 0; i < value->as_array->count; i++) {
                 VibeValue* el = vibe_value_clone(value->as_array->values[i]);
                 if (!el) { vibe_value_free(arr); return NULL; }
-                vibe_array_push(arr->as_array, el);
+                if (!vibe_array_push(arr->as_array, el)) { vibe_value_free(arr); return NULL; }
             }
             return arr;
         }
@@ -1255,7 +1260,9 @@ VibeValue* vibe_value_clone(const VibeValue* value) {
             for (size_t i = 0; i < value->as_object->count; i++) {
                 VibeValue* cv = vibe_value_clone(value->as_object->entries[i].value);
                 if (!cv) { vibe_value_free(obj); return NULL; }
-                vibe_object_set(obj->as_object, value->as_object->entries[i].key, cv);
+                if (!vibe_object_set(obj->as_object, value->as_object->entries[i].key, cv)) {
+                    vibe_value_free(obj); return NULL;
+                }
             }
             return obj;
         }
@@ -1435,26 +1442,26 @@ static size_t vibe__obj_find(const VibeObject* obj, const char* key) {
     return (size_t)-1;
 }
 
-void vibe_object_set(VibeObject* obj, const char* key, VibeValue* value) {
-    if (!obj || !key || !value) { vibe_value_free(value); return; }
+bool vibe_object_set(VibeObject* obj, const char* key, VibeValue* value) {
+    if (!obj || !key || !value) { vibe_value_free(value); return false; }
 
     size_t found = vibe__obj_find(obj, key);
     if (found != (size_t)-1) {
         vibe_value_free(obj->entries[found].value);
         obj->entries[found].value = value; /* last-wins */
-        return;
+        return true;
     }
 
     if (obj->count >= obj->capacity) {
         size_t ncap = vibe__grow_cap(obj->capacity, obj->count + 1, sizeof(VibeObjectEntry));
         VibeObjectEntry* ne = ncap ? (VibeObjectEntry*)vibe__realloc_array(obj->entries, ncap, sizeof(VibeObjectEntry)) : NULL;
-        if (!ne) { vibe_value_free(value); return; }
+        if (!ne) { vibe_value_free(value); return false; }
         obj->entries = ne;
         obj->capacity = ncap;
     }
 
     char* kdup = vibe__strdup(key);
-    if (!kdup) { vibe_value_free(value); return; }
+    if (!kdup) { vibe_value_free(value); return false; }
     size_t slot = obj->count;
     obj->entries[slot].key = kdup;
     obj->entries[slot].value = value;
@@ -1467,6 +1474,7 @@ void vibe_object_set(VibeObject* obj, const char* key, VibeValue* value) {
     } else if (obj->count >= VIBE_OBJECT_HASH_THRESHOLD) {
         vibe__obj_reindex(obj, obj->count);
     }
+    return true;
 }
 
 VibeValue* vibe_object_get(VibeObject* obj, const char* key) {
@@ -1517,52 +1525,48 @@ bool vibe_object_remove(VibeObject* obj, const char* key) {
 bool vibe_object_set_string(VibeObject* obj, const char* key, const char* value) {
     VibeValue* v = vibe_value_new_string(value);
     if (!v) return false;
-    vibe_object_set(obj, key, v);
-    return vibe_object_get(obj, key) == v;
+    return vibe_object_set(obj, key, v);
 }
 bool vibe_object_set_int(VibeObject* obj, const char* key, int64_t value) {
     VibeValue* v = vibe_value_new_integer(value);
     if (!v) return false;
-    vibe_object_set(obj, key, v);
-    return vibe_object_get(obj, key) == v;
+    return vibe_object_set(obj, key, v);
 }
 bool vibe_object_set_float(VibeObject* obj, const char* key, double value) {
     VibeValue* v = vibe_value_new_float(value);
     if (!v) return false;
-    vibe_object_set(obj, key, v);
-    return vibe_object_get(obj, key) == v;
+    return vibe_object_set(obj, key, v);
 }
 bool vibe_object_set_bool(VibeObject* obj, const char* key, bool value) {
     VibeValue* v = vibe_value_new_boolean(value);
     if (!v) return false;
-    vibe_object_set(obj, key, v);
-    return vibe_object_get(obj, key) == v;
+    return vibe_object_set(obj, key, v);
 }
 bool vibe_object_set_null(VibeObject* obj, const char* key) {
     VibeValue* v = vibe_value_new_null();
     if (!v) return false;
-    vibe_object_set(obj, key, v);
-    return vibe_object_get(obj, key) == v;
+    return vibe_object_set(obj, key, v);
 }
 
-void vibe_array_push(VibeArray* arr, VibeValue* value) {
-    if (!arr || !value) { vibe_value_free(value); return; }
+bool vibe_array_push(VibeArray* arr, VibeValue* value) {
+    if (!arr || !value) { vibe_value_free(value); return false; }
     /* The First Law: arrays hold scalars only. A container element is a bug in
      * the caller — refuse it rather than build a document the parser would
      * reject on the way back in. */
     if (value->type == VIBE_TYPE_ARRAY || value->type == VIBE_TYPE_OBJECT) {
         vibe_value_free(value);
-        return;
+        return false;
     }
 
     if (arr->count >= arr->capacity) {
         size_t ncap = vibe__grow_cap(arr->capacity, arr->count + 1, sizeof(VibeValue*));
         VibeValue** nv = ncap ? (VibeValue**)vibe__realloc_array(arr->values, ncap, sizeof(VibeValue*)) : NULL;
-        if (!nv) { vibe_value_free(value); return; }
+        if (!nv) { vibe_value_free(value); return false; }
         arr->values = nv;
         arr->capacity = ncap;
     }
     arr->values[arr->count++] = value;
+    return true;
 }
 
 VibeValue* vibe_array_get(VibeArray* arr, size_t index) {
@@ -1590,30 +1594,22 @@ void vibe_array_clear(VibeArray* arr) {
 bool vibe_array_push_string(VibeArray* arr, const char* value) {
     VibeValue* v = vibe_value_new_string(value);
     if (!v) return false;
-    size_t before = vibe_array_size(arr);
-    vibe_array_push(arr, v);
-    return vibe_array_size(arr) == before + 1;
+    return vibe_array_push(arr, v);
 }
 bool vibe_array_push_int(VibeArray* arr, int64_t value) {
     VibeValue* v = vibe_value_new_integer(value);
     if (!v) return false;
-    size_t before = vibe_array_size(arr);
-    vibe_array_push(arr, v);
-    return vibe_array_size(arr) == before + 1;
+    return vibe_array_push(arr, v);
 }
 bool vibe_array_push_float(VibeArray* arr, double value) {
     VibeValue* v = vibe_value_new_float(value);
     if (!v) return false;
-    size_t before = vibe_array_size(arr);
-    vibe_array_push(arr, v);
-    return vibe_array_size(arr) == before + 1;
+    return vibe_array_push(arr, v);
 }
 bool vibe_array_push_bool(VibeArray* arr, bool value) {
     VibeValue* v = vibe_value_new_boolean(value);
     if (!v) return false;
-    size_t before = vibe_array_size(arr);
-    vibe_array_push(arr, v);
-    return vibe_array_size(arr) == before + 1;
+    return vibe_array_push(arr, v);
 }
 
 /* ============================================================================
@@ -1826,7 +1822,11 @@ VibeValue* vibe_parse_buffer(VibeParser* parser, const char* data, size_t length
                     token_free(&next);
                     VibeValue* child = vibe_value_new_object();
                     if (!child) { set_error(parser, VIBE_ERROR_OUT_OF_MEMORY, "Out of memory"); VIBE_FAIL(); }
-                    vibe_object_set(obj, current_key, child);
+                    if (!vibe_object_set(obj, current_key, child)) {
+                        /* set freed `child`; do not keep a dangling container */
+                        set_error(parser, VIBE_ERROR_OUT_OF_MEMORY, "Out of memory");
+                        VIBE_FAIL();
+                    }
                     depth++;
                     if ((size_t)depth > parser->limits.max_depth) {
                         set_error(parser, VIBE_ERROR_LIMIT_EXCEEDED,
@@ -1840,7 +1840,10 @@ VibeValue* vibe_parse_buffer(VibeParser* parser, const char* data, size_t length
                     token_free(&next);
                     VibeValue* child = vibe_value_new_array();
                     if (!child) { set_error(parser, VIBE_ERROR_OUT_OF_MEMORY, "Out of memory"); VIBE_FAIL(); }
-                    vibe_object_set(obj, current_key, child);
+                    if (!vibe_object_set(obj, current_key, child)) {
+                        set_error(parser, VIBE_ERROR_OUT_OF_MEMORY, "Out of memory");
+                        VIBE_FAIL();
+                    }
                     depth++;
                     if ((size_t)depth > parser->limits.max_depth) {
                         set_error(parser, VIBE_ERROR_LIMIT_EXCEEDED,
@@ -1859,7 +1862,11 @@ VibeValue* vibe_parse_buffer(VibeParser* parser, const char* data, size_t length
                         token_free(&next);
                         VIBE_FAIL();
                     }
-                    vibe_object_set(obj, current_key, val);
+                    if (!vibe_object_set(obj, current_key, val)) {
+                        set_error(parser, VIBE_ERROR_OUT_OF_MEMORY, "Out of memory");
+                        token_free(&next);
+                        VIBE_FAIL();
+                    }
                     token_free(&next);
                 }
                 vibe__free(current_key);
@@ -1909,7 +1916,11 @@ VibeValue* vibe_parse_buffer(VibeParser* parser, const char* data, size_t length
                     token_free(&token);
                     VIBE_FAIL();
                 }
-                vibe_array_push(arr, val);
+                if (!vibe_array_push(arr, val)) {
+                    set_error(parser, VIBE_ERROR_OUT_OF_MEMORY, "Out of memory");
+                    token_free(&token);
+                    VIBE_FAIL();
+                }
                 token_free(&token);
             }
         }

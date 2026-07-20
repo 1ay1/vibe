@@ -67,7 +67,7 @@ main = do
         putStrLn $ "  [" ++ (if pass then "ok " else "BAD") ++ "] " ++ name ++ " = " ++ show got
 
   ver <- c_version >>= peekCString
-  check "version" ver "1.1.0"
+  check "version" ver "1.2.0"
   getStr v "name"        >>= \x -> check "name" x "libvibe"
   getInt v "answer"      >>= \x -> check "answer" x 42
   pi' <- getFloat v "pi"

@@ -27,7 +27,7 @@ void Check(string name, object got, object want)
 }
 string Str(IntPtr p) => p == IntPtr.Zero ? "" : Marshal.PtrToStringUTF8(p) ?? "";
 
-Check("version", Str(Native.vibe_version()), "1.1.0");
+Check("version", Str(Native.vibe_version()), "1.2.0");
 Check("name", Str(Native.vibe_get_string(v, "name")), "libvibe");
 Check("answer", Native.vibe_get_int(v, "answer"), 42L);
 Check("pi", Math.Round(Native.vibe_get_float(v, "pi"), 5), 3.14159);

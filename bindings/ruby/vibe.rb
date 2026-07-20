@@ -99,7 +99,7 @@ if __FILE__ == $PROGRAM_NAME
   doc = Vibe.parse(File.binread(sample))
   ok = true
   checks = [
-    ["version",     Vibe.version,              "1.1.0"],
+    ["version",     Vibe.version,              "1.2.0"],
     ["name",        doc.get_string("name"),    "libvibe"],
     ["answer",      doc.get_int("answer"),     42],
     ["pi",          doc.get_float("pi").round(5), 3.14159],

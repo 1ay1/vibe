@@ -40,7 +40,7 @@
   (format #t "FAILED (guile): parse error\n")
   (exit 1))
 
-(check "version" (pointer->string (vibe-version)) "1.1.0")
+(check "version" (pointer->string (vibe-version)) "1.2.0")
 (check "name" (get-str v "name") "libvibe")
 (check "answer" (vibe-get-int v (cstr "answer")) 42)
 (check "pi" (/ (round (* (vibe-get-float v (cstr "pi")) 100000)) 100000) 3.14159)

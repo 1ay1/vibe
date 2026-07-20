@@ -49,7 +49,7 @@ void main() {
         if (got != want) ok = false;
         writefln("  [%s] %s = %s", got == want ? "ok " : "BAD", name, got);
     }
-    check!string("version", vibe_version().fromStringz.idup, "1.1.0");
+    check!string("version", vibe_version().fromStringz.idup, "1.2.0");
     check!string("name", getStr(v, "name"), "libvibe");
     check!long("answer", vibe_get_int(v, "answer"), 42);
     check!double("pi", (vibe_get_float(v, "pi") * 100000).round / 100000, 3.14159);

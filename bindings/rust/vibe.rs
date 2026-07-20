@@ -115,7 +115,7 @@ fn main() {
             println!("  [{}] {} = {:?}", if pass { "ok " } else { "BAD" }, $name, got);
         }};
     }
-    check!("version", version(), "1.1.0");
+    check!("version", version(), "1.2.0");
     check!("name", doc.get_string("name"), Some("libvibe".to_string()));
     check!("answer", doc.get_int("answer"), 42);
     check!("pi", (doc.get_float("pi") * 100000.0).round() / 100000.0, 3.14159);

@@ -33,7 +33,7 @@
   (printf "FAILED (racket): parse error\n")
   (exit 1))
 
-(check "version" (vibe-version) "1.1.0")
+(check "version" (vibe-version) "1.2.0")
 (check "name" (vibe-get-string v "name") "libvibe")
 (check "answer" (vibe-get-int v "answer") 42)
 (check "pi" (/ (round (* (vibe-get-float v "pi") 100000)) 100000) 3.14159)

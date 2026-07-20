@@ -37,7 +37,7 @@ pub fn main() void {
 
     // version
     const ver = std.mem.span(c.vibe_version());
-    ok = check_str("version", ver, "1.1.0") and ok;
+    ok = check_str("version", ver, "1.2.0") and ok;
     ok = check_str("name", std.mem.span(c.vibe_get_string(v, "name")), "libvibe") and ok;
     ok = check_int("answer", c.vibe_get_int(v, "answer"), 42) and ok;
 

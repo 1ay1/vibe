@@ -77,7 +77,7 @@ class VibeError(Exception):
 
 
 def version():
-    """Runtime library version, e.g. '1.1.0'."""
+    """Runtime library version, e.g. '1.2.0'."""
     return _vibe_version().decode()
 
 
@@ -151,7 +151,7 @@ def _selftest():
     with open(sample, "rb") as f:
         doc = parse(f.read())
     checks = [
-        ("version", version(), "1.1.0"),
+        ("version", version(), "1.2.0"),
         ("name", doc.get_string("name"), "libvibe"),
         ("answer", doc.get_int("answer"), 42),
         ("pi", round(doc.get_float("pi"), 5), 3.14159),

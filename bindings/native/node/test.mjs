@@ -12,7 +12,7 @@ const sample = readFileSync(join(here, "..", "..", "sample.vibe"), "utf8");
 
 const assert = (c, m) => { if (!c) { console.error("FAIL:", m); process.exit(1); } };
 
-assert(vibe.version() === "1.1.0", "version");
+assert(vibe.version() === "1.2.0", "version");
 
 const doc = vibe.parse(sample);
 assert(vibe.getString(doc, "name") === "libvibe", "name");

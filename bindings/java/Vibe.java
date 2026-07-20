@@ -65,7 +65,7 @@ public class Vibe {
         boolean[] ok = { true };
 
         String ver = str((MemorySegment) version.invoke());
-        check(ok, "version", ver, "1.1.0");
+        check(ok, "version", ver, "1.2.0");
         check(ok, "name", str((MemorySegment) getStr.invoke(v, cstr("name"))), "libvibe");
         check(ok, "answer", (long) getInt.invoke(v, cstr("answer")), 42L);
         double pi = Math.round((double) getFloat.invoke(v, cstr("pi")) * 100000.0) / 100000.0;

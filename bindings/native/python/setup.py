@@ -20,7 +20,7 @@ vibe = Extension(
 
 setup(
     name="vibe",
-    version="1.1.0",
+    version="1.2.0",
     description="Native CPython C-API bindings for libvibe",
     ext_modules=[vibe],
 )

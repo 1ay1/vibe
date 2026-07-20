@@ -30,7 +30,7 @@ func check<T: Equatable>(_ name: String, _ got: T, _ want: T) {
     print("  [\(pass ? "ok " : "BAD")] \(name) = \(got)")
 }
 
-check("version", cstr(vibe_version()), "1.1.0")
+check("version", cstr(vibe_version()), "1.2.0")
 check("name", cstr(vibe_get_string(v, "name")), "libvibe")
 check("answer", vibe_get_int(v, "answer"), 42)
 check("pi", (vibe_get_float(v, "pi") * 100000).rounded() / 100000, 3.14159)

@@ -5,7 +5,7 @@ require "vibe"
 
 sample = File.read(File.expand_path("../../sample.vibe", __dir__))
 
-raise "version" unless Vibe.version == "1.1.0"
+raise "version" unless Vibe.version == "1.2.0"
 
 doc = Vibe.parse(sample)
 raise "name"    unless doc.get_string("name") == "libvibe"

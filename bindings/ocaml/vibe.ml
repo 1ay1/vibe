@@ -55,7 +55,7 @@ let () =
   if is_null v then (print_endline "FAILED (ocaml): parse error"; exit 1);
 
   let gets path = match vibe_get_string v path with Some s -> s | None -> "" in
-  check "version" (vibe_version ()) "1.1.0";
+  check "version" (vibe_version ()) "1.2.0";
   check "name" (gets "name") "libvibe";
   check "answer" (Int64.to_string (vibe_get_int v "answer")) "42";
   let pi = Float.round (vibe_get_float v "pi" *. 100000.) /. 100000. in

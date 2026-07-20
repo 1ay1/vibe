@@ -7,9 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] — library API safety
+
+### Changed (source-compatible; no ABI break)
+- 🔁 **`vibe_object_set()` and `vibe_array_push()` now return `bool`** instead of
+  `void`: `true` when the value is stored, `false` on allocation failure, a NULL
+  argument, or a First-Law violation (pushing a container). In every failure
+  case the passed value is still freed, so ownership is always consumed and a
+  rejected mutation never leaks. Existing callers that ignore the result keep
+  compiling and behaving exactly as before — this is why it is a minor bump.
+- 📦 SONAME payload is now `libvibe.so.1.2.0` (SOVERSION unchanged at `1`).
+
+### Fixed
+- 🐛 **Latent use-after-free in the parser.** When growing an object's entry
+  table failed under memory pressure mid-parse, `vibe_object_set()` freed the
+  just-created child container but the parse loop still recorded it as the
+  active container and kept writing into freed memory. The new `bool` return is
+  now checked at every internal call site (parser and `vibe_value_clone`), so
+  an allocation failure aborts cleanly with `out-of-memory` instead.
+
 ### libvibe — the reference implementation is now a real C library
 - 📦 **Static + shared library.** `make` builds `libvibe.a` and a versioned
-  shared library (`libvibe.so.1.1.0`, SONAME `libvibe.so.1`; `.dylib` on macOS);
+  shared library (`libvibe.so.1.2.0`, SONAME `libvibe.so.1`; `.dylib` on macOS);
   `make install` lays down the header, both libraries, a `vibe.pc` pkg-config
   file, and the CLI. Consume it with `cc app.c $(pkg-config --cflags --libs vibe)`.
 - 🛠️ **`vibe` command-line tool.** `vibe check` (validate + structured error),

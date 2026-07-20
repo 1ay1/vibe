@@ -993,12 +993,34 @@ void test_sec_first_law_api_guard() {
     TEST("Security: API refuses container elements in arrays");
     VibeValue* arr = vibe_value_new_array();
     ASSERT(arr, "array");
-    vibe_array_push(arr->as_array, vibe_value_new_object()); /* must be refused+freed */
-    vibe_array_push(arr->as_array, vibe_value_new_array());  /* must be refused+freed */
+    /* push now returns bool: false on First-Law rejection, value still freed. */
+    ASSERT(!vibe_array_push(arr->as_array, vibe_value_new_object()), "object push refused");
+    ASSERT(!vibe_array_push(arr->as_array, vibe_value_new_array()), "array push refused");
     ASSERT(vibe_array_size(arr->as_array) == 0, "containers must not enter array");
-    ASSERT(vibe_array_push_int(arr->as_array, 42), "scalar push ok");
-    ASSERT(vibe_array_size(arr->as_array) == 1, "scalar accepted");
+    ASSERT(vibe_array_push(arr->as_array, vibe_value_new_integer(42)), "scalar push ok");
+    ASSERT(vibe_array_push_int(arr->as_array, 7), "scalar push_int ok");
+    ASSERT(vibe_array_size(arr->as_array) == 2, "scalars accepted");
     vibe_value_free(arr);
+    PASS();
+}
+
+void test_sec_set_push_return_contract() {
+    TEST("Security: set/push return true and take ownership");
+    VibeValue* obj = vibe_value_new_object();
+    ASSERT(obj, "obj");
+    /* set returns true; replacing a key frees the old value (no leak under ASan). */
+    ASSERT(vibe_object_set(obj->as_object, "k", vibe_value_new_integer(1)), "set 1");
+    ASSERT(vibe_object_set(obj->as_object, "k", vibe_value_new_integer(2)), "set 2 (replace)");
+    ASSERT(vibe_object_size(obj->as_object) == 1, "replace keeps one key");
+    ASSERT(vibe_get_int(vibe_object_get(obj->as_object, "k"), NULL) == 2, "last-wins");
+    /* NULL value: set consumes ownership (nothing to free) and returns false. */
+    ASSERT(!vibe_object_set(obj->as_object, "x", NULL), "set NULL value false");
+    ASSERT(!vibe_object_set(NULL, "x", vibe_value_new_integer(9)), "set NULL obj false (frees value)");
+    VibeValue* arr = vibe_value_new_array();
+    ASSERT(!vibe_array_push(NULL, vibe_value_new_integer(9)), "push NULL arr false (frees value)");
+    ASSERT(vibe_array_push(arr->as_array, vibe_value_new_string("ok")), "push true");
+    vibe_value_free(arr);
+    vibe_value_free(obj);
     PASS();
 }
 
@@ -1174,6 +1196,7 @@ int main() {
     test_sec_integer_out_of_range();
     test_sec_custom_limits();
     test_sec_first_law_api_guard();
+    test_sec_set_push_return_contract();
     test_sec_null_safety();
     test_sec_roundtrip_idempotent();
     test_sec_hash_index_stress();

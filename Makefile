@@ -20,7 +20,7 @@ CFLAGS   ?= -Wall -Wextra -std=c11 -O2 -g
 LDFLAGS  ?=
 AR       ?= ar
 
-VERSION   := 1.1.0
+VERSION   := 1.2.0
 SOVERSION := 1
 
 # ---- install layout (override on the command line, e.g. PREFIX=/usr) --------

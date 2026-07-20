@@ -45,7 +45,7 @@ when isMainModule:
     if got != want: ok = false
     echo "  [", (if got == want: "ok " else: "BAD"), "] ", name, " = ", got
 
-  check("version", $vibe_version(), "1.1.0")
+  check("version", $vibe_version(), "1.2.0")
   check("name", getStr(v, "name"), "libvibe")
   check("answer", vibe_get_int(v, "answer"), 42'i64)
   check("pi", round(vibe_get_float(v, "pi") * 100000) / 100000, 3.14159)

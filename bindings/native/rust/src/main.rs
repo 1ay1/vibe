@@ -3,7 +3,7 @@
 fn main() {
     let sample = include_str!("../../../sample.vibe");
 
-    assert_eq!(vibe_sys::version(), "1.1.0");
+    assert_eq!(vibe_sys::version(), "1.2.0");
 
     let doc = vibe_sys::Doc::parse(sample).expect("parse sample.vibe");
     assert_eq!(doc.get_string("name").as_deref(), Some("libvibe"));

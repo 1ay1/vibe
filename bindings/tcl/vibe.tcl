@@ -39,7 +39,7 @@ proc check {name got want} {
     puts "  \[[expr {$pass ? {ok } : {BAD}}]\] $name = $got"
 }
 
-check "version" [vibe_version] "1.1.0"
+check "version" [vibe_version] "1.2.0"
 check "name" [vibe_get_string $v "name"] "libvibe"
 check "answer" [vibe_get_int $v "answer"] 42
 check "pi" [format %.5f [vibe_get_float $v "pi"]] "3.14159"

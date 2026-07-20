@@ -64,7 +64,7 @@ fun main() {
         println("  [${if (pass) "ok " else "BAD"}] $name = $got")
     }
 
-    check("version", str(version.invokeWithArguments() as MemorySegment), "1.1.0")
+    check("version", str(version.invokeWithArguments() as MemorySegment), "1.2.0")
     check("name", str(getStr.invokeWithArguments(v, cstr("name")) as MemorySegment), "libvibe")
     check("answer", getInt.invokeWithArguments(v, cstr("answer")) as Long, 42L)
     val pi = Math.round((getFloat.invokeWithArguments(v, cstr("pi")) as Double) * 100000.0) / 100000.0

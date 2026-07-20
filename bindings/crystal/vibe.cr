@@ -90,8 +90,8 @@ check = ->(name : String, got : String, want : String) do
   puts "  [#{got == want ? "ok " : "BAD"}] #{name} = #{got}"
 end
 
-ok = false unless Vibe.version == "1.1.0"
-puts "  [#{Vibe.version == "1.1.0" ? "ok " : "BAD"}] version = #{Vibe.version}"
+ok = false unless Vibe.version == "1.2.0"
+puts "  [#{Vibe.version == "1.2.0" ? "ok " : "BAD"}] version = #{Vibe.version}"
 check.call("name", doc.get_string("name"), "libvibe")
 ok = false unless doc.get_int("answer") == 42
 puts "  [#{doc.get_int("answer") == 42 ? "ok " : "BAD"}] answer = #{doc.get_int("answer")}"

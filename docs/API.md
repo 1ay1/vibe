@@ -59,14 +59,14 @@ parse is independent, so one `VibeParser` per thread is fully re-entrant.
 
 ```c
 #define VIBE_VERSION_MAJOR 1
-#define VIBE_VERSION_MINOR 1
+#define VIBE_VERSION_MINOR 2
 #define VIBE_VERSION_PATCH 0
-#define VIBE_VERSION_STRING "1.1.0"
+#define VIBE_VERSION_STRING "1.2.0"
 #define VIBE_VERSION_NUMBER  /* MAJOR*10000 + MINOR*100 + PATCH */
 #define VIBE_FORMAT_VERSION "1.0"
 
-const char *vibe_version(void);         /* "1.1.0"           */
-int         vibe_version_number(void);  /* 10100             */
+const char *vibe_version(void);         /* "1.2.0"           */
+int         vibe_version_number(void);  /* 10200             */
 const char *vibe_format_version(void);  /* "1.0"             */
 ```
 
@@ -389,7 +389,7 @@ int64_t     port = vibe_get_int_or(cfg, "server.port", 8080);
 **Objects** — insertion-ordered key/value maps with amortised O(1) lookup:
 
 ```c
-void        vibe_object_set(VibeObject *obj, const char *key, VibeValue *value); /* takes ownership */
+bool        vibe_object_set(VibeObject *obj, const char *key, VibeValue *value); /* takes ownership; true on store */
 VibeValue  *vibe_object_get(VibeObject *obj, const char *key);                   /* borrowed */
 size_t      vibe_object_size(const VibeObject *obj);
 bool        vibe_object_has(const VibeObject *obj, const char *key);
@@ -410,7 +410,7 @@ bool vibe_object_set_null(VibeObject *obj, const char *key);
 **Arrays** — ordered lists of **scalars only** (the First Law):
 
 ```c
-void        vibe_array_push(VibeArray *arr, VibeValue *value);   /* takes ownership; rejects containers */
+bool        vibe_array_push(VibeArray *arr, VibeValue *value);   /* takes ownership; true on store, rejects containers */
 VibeValue  *vibe_array_get(VibeArray *arr, size_t index);        /* borrowed */
 size_t      vibe_array_size(const VibeArray *arr);
 bool        vibe_array_remove(VibeArray *arr, size_t index);     /* shifts later elements down */
@@ -423,10 +423,14 @@ bool vibe_array_push_float(VibeArray *arr, double value);
 bool vibe_array_push_bool(VibeArray *arr, bool value);
 ```
 
-`vibe_object_set()` replaces an existing key (freeing the old value). On
-allocation failure the passed value is freed rather than leaked. Pushing an
-object or array into an array is **refused** (the value is freed, the array is
-unchanged) — arrays hold scalars, always.
+`vibe_object_set()` and `vibe_array_push()` return `bool` — `true` when the
+value is stored, `false` on allocation failure, a NULL argument, or (for push) a
+First-Law violation. **In every case the passed value's ownership is consumed:**
+on failure it is freed, so a rejected mutation never leaks and you never
+double-free. `vibe_object_set()` replaces an existing key (freeing the old
+value). Pushing an object or array into an array is **refused** (the value is
+freed, the array is unchanged, the call returns `false`) — arrays hold scalars,
+always.
 
 ```c
 /* Walk an object without touching internals: */
