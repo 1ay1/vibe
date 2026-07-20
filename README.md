@@ -242,10 +242,10 @@ int main() {
 }
 ```
 
-**Step 3:** Compile and run:
+**Step 3:** Compile and run (header-only — nothing to link):
 
 ```bash
-gcc -o myapp myapp.c vibe.c -std=c11
+gcc -o myapp myapp.c -std=c11    # myapp.c does #define VIBE_IMPLEMENTATION
 ./myapp
 ```
 
@@ -426,21 +426,38 @@ make test            # Run all tests
 
 ### Integration
 
-**Option A — link the installed library (recommended).** After `make install`:
+libvibe is a **single-header library** — the whole implementation lives in
+`vibe.h`. Three ways to use it, simplest first:
+
+**Option A — header-only (stb-style, zero build).** Copy just `vibe.h` into your
+project. In exactly one `.c` file, define the implementation macro before
+including it; every other file includes it plainly:
+
+```c
+#define VIBE_IMPLEMENTATION   /* in ONE translation unit only */
+#include "vibe.h"
+```
+```bash
+cc -std=c11 -o myapp myapp.c        # nothing else to compile or link
+```
+Add `#define VIBE_STATIC` alongside `VIBE_IMPLEMENTATION` to give every function
+internal linkage (no exported symbols, maximal inlining) — ideal for embedding.
+
+**Option B — link the installed library.** After `make install`:
 
 ```bash
 cc -std=c11 -o myapp myapp.c $(pkg-config --cflags --libs vibe)
 ```
 
-**Option B — vendor the two files.** Copy `vibe.h` and `vibe.c` into your
-project and add `vibe.c` to your build:
+**Option C — vendor two files.** Copy `vibe.h` + the tiny `vibe.c` shim (it just
+`#define VIBE_IMPLEMENTATION` + `#include "vibe.h"`) and add `vibe.c` to your build:
 
 ```bash
 cc -std=c11 -o myapp myapp.c vibe.c
 ```
 
-Either way, `#include <vibe.h>` (installed) or `#include "vibe.h"` (vendored).
-The library has no dependencies beyond the C standard library.
+Any way, `#include <vibe.h>` (installed) or `#include "vibe.h"` (vendored). The
+library has no dependencies beyond the C standard library.
 
 ## 📋 Examples
 
