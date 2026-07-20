@@ -451,8 +451,12 @@ void test_error_unclosed_brace() {
         // Missing closing brace
     );
     
-    // Should still parse what it can
-    ASSERT(config != NULL, "Should return partial parse");
+    // An unclosed object must be rejected, not silently accepted (First Law of
+    // conformance: a parser MUST NOT silently accept malformed input).
+    ASSERT(config == NULL, "Unclosed object should be rejected");
+    
+    VibeError error = vibe_get_last_error(parser);
+    ASSERT(error.has_error == true, "Should report an error");
     
     vibe_value_free(config);
     vibe_parser_free(parser);

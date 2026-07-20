@@ -5,6 +5,33 @@ All notable changes to the VIBE project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- 🧪 Language-neutral **conformance test suite** (`tests/conformance/`) with a
+  tagged-JSON interchange encoding and fixed error-category vocabulary; the
+  reference parser now passes 100% (7 valid + 7 invalid fixtures).
+- 📜 Conformance-grade specification: RFC 2119 language, "The First Law of VIBE",
+  a Conformance Test Suite section, and a Versioning & Stability promise.
+
+### Fixed
+- 🛑 **Unclosed objects/arrays are now rejected** instead of silently accepted as
+  a partial parse (the parser no longer accepts malformed input).
+- 🔢 **Out-of-range integers and floats are rejected** (`invalid-number`) instead
+  of being silently clamped to `INT64_MAX`/infinity.
+- 🚫 Stray `}` at the top level and unexpected tokens where a key is expected now
+  raise an error rather than being silently dropped.
+- 💧 Fixed a memory leak in `set_error` that orphaned the previous error message
+  when a parser was reused across multiple failing parses.
+- 🗂️ `vibe_parse_file` now guards against `ftell` returning -1 (non-regular files)
+  before allocating.
+
+### Changed
+- 📖 Spec honesty pass: `\uXXXX` documented as an OPTIONAL v1.1 escape (a strict
+  1.0 parser rejects it), `[index]` path suffix marked implementation-defined,
+  the false "streaming parser" guideline removed, and the duplicate-key rule
+  reduced to a single normative behavior (last-wins).
+
 ## [1.0.0] - 2025-01-15
 
 ### Added

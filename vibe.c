@@ -18,6 +18,7 @@
 #include <string.h>
 #include <ctype.h>
 #include <stdarg.h>
+#include <errno.h>
 
 // How deep can we nest? 64 levels should be plenty
 // (if you need more than this, your config is probably too complex)
@@ -120,6 +121,7 @@ static void set_error(VibeParser* parser, const char* fmt, ...) {
     va_end(args);
 
     parser->error.has_error = true;
+    free(parser->error.message);   /* avoid leaking a prior parse's message */
     parser->error.message = strdup(buffer);
     parser->error.line = parser->line;
     parser->error.column = parser->column;
@@ -481,17 +483,27 @@ static VibeValue* parse_value_from_token(Token* token) {
         case TOKEN_NUMBER: {
             if (strchr(token->value, '.')) {
                 char *endptr;
+                errno = 0;
                 double val = strtod(token->value, &endptr);
-                if (endptr == token->value) {
-                    /* Conversion failed */
+                if (endptr == token->value || *endptr != '\0') {
+                    /* Conversion failed / trailing garbage */
+                    return NULL;
+                }
+                if (errno == ERANGE) {
+                    /* Value not representable as a double: reject, do not clamp */
                     return NULL;
                 }
                 return vibe_value_new_float(val);
             } else {
                 char *endptr;
+                errno = 0;
                 long long val = strtoll(token->value, &endptr, 10);
-                if (endptr == token->value) {
-                    /* Conversion failed */
+                if (endptr == token->value || *endptr != '\0') {
+                    /* Conversion failed / trailing garbage */
+                    return NULL;
+                }
+                if (errno == ERANGE) {
+                    /* Value outside int64 range: reject, do not silently clamp */
                     return NULL;
                 }
                 return vibe_value_new_integer(val);
@@ -644,6 +656,17 @@ VibeValue* vibe_parse_string(VibeParser* parser, const char* input) {
 
         if (token.type == TOKEN_EOF) {
             token_free(&token);
+            if (stack.depth > 0) {
+                /* Reached end of input with an object/array still open. */
+                StateFrame* open = &stack.frames[stack.depth];
+                set_error(parser,
+                          open->state == STATE_ARRAY
+                              ? "Unexpected end of input: unclosed array (missing ']')"
+                              : "Unexpected end of input: unclosed object (missing '}')");
+                free(current_key);
+                vibe_value_free(root);
+                return NULL;
+            }
             break;
         }
 
@@ -705,6 +728,12 @@ VibeValue* vibe_parse_string(VibeParser* parser, const char* input) {
                     VibeValue* val = parse_value_from_token(&next);
                     if (val) {
                         vibe_object_set(frame->container->as_object, current_key, val);
+                    } else {
+                        set_error(parser, "Invalid value for key '%s' (number out of range or malformed)", current_key);
+                        token_free(&next);
+                        free(current_key);
+                        vibe_value_free(root);
+                        return NULL;
                     }
                     token_free(&next);
                     free(current_key);
@@ -713,10 +742,20 @@ VibeValue* vibe_parse_string(VibeParser* parser, const char* input) {
             } else if (token.type == TOKEN_RIGHT_BRACE) {
                 if (stack.depth > 0) {
                     stack.depth--;
+                    token_free(&token);
+                } else {
+                    set_error(parser, "Unexpected '}' with no matching '{'");
+                    token_free(&token);
+                    free(current_key);
+                    vibe_value_free(root);
+                    return NULL;
                 }
-                token_free(&token);
             } else {
+                set_error(parser, "Unexpected token where a key was expected");
                 token_free(&token);
+                free(current_key);
+                vibe_value_free(root);
+                return NULL;
             }
         } else if (frame->state == STATE_ARRAY) {
             if (token.type == TOKEN_RIGHT_BRACKET) {
@@ -737,19 +776,15 @@ VibeValue* vibe_parse_string(VibeParser* parser, const char* input) {
                 vibe_value_free(root);
                 return NULL;
             } else {
-                /* Parse value - this could be a simple value or start of an object */
-                if (token.type == TOKEN_IDENTIFIER) {
-                    /* This might be a key in an object within the array */
-                    /* For now, treat as regular value - objects in arrays need parser rewrite */
-                    VibeValue* val = parse_value_from_token(&token);
-                    if (val) {
-                        vibe_array_push(frame->container->as_array, val);
-                    }
+                /* Array elements must be scalars (First Law enforced above). */
+                VibeValue* val = parse_value_from_token(&token);
+                if (val) {
+                    vibe_array_push(frame->container->as_array, val);
                 } else {
-                    VibeValue* val = parse_value_from_token(&token);
-                    if (val) {
-                        vibe_array_push(frame->container->as_array, val);
-                    }
+                    set_error(parser, "Invalid array element (number out of range or malformed)");
+                    token_free(&token);
+                    vibe_value_free(root);
+                    return NULL;
                 }
                 token_free(&token);
             }
@@ -765,6 +800,8 @@ VibeValue* vibe_parse_string(VibeParser* parser, const char* input) {
 VibeValue* vibe_parse_file(VibeParser* parser, const char* filename) {
     if (!parser || !filename) return NULL;
 
+    parser->error.has_error = false;  /* fresh parse: allow new errors to register */
+
     FILE* file = fopen(filename, "rb");
     if (!file) {
         set_error(parser, "Cannot open file '%s'", filename);
@@ -773,6 +810,11 @@ VibeValue* vibe_parse_file(VibeParser* parser, const char* filename) {
 
     fseek(file, 0, SEEK_END);
     long size = ftell(file);
+    if (size < 0) {
+        fclose(file);
+        set_error(parser, "Cannot determine size of '%s' (not a regular file?)", filename);
+        return NULL;
+    }
     fseek(file, 0, SEEK_SET);
 
     char* buffer = malloc(size + 1);
