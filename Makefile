@@ -42,6 +42,8 @@ TEST_BIN    := vibe_test
 TEST_OBJ    := tests/test.o
 CLI_BIN     := vibe
 CLI_OBJ     := tools/vibe.o
+TOOL_BIN    := vibe-tool
+TOOL_OBJ    := tools/vibe-tool.o
 CONF_BIN    := tests/conformance/run
 PARSER_TOOL_BIN := vibe_parser_tool
 PARSER_TOOL_OBJ := vibe_parser_tool.o
@@ -68,15 +70,17 @@ else
   SHARED_LDFLAGS := -shared -Wl,-soname,$(SHARED_SONAME)
 endif
 
-.PHONY: all lib cli conformance test test-suite test-all run demo \
+.PHONY: all lib cli tool conformance test test-suite test-all tool-test run demo \
         clean help install uninstall parser_tool docs
 
-# Default: libraries + example + CLI (no platform surprises beyond the shared lib).
-all: lib $(EXAMPLE_BIN) $(CLI_BIN)
+# Default: libraries + example + CLI + the vibe-tool utility suite.
+all: lib $(EXAMPLE_BIN) $(CLI_BIN) $(TOOL_BIN)
 
 lib: $(STATIC_LIB) $(SHARED_REAL)
 
 cli: $(CLI_BIN)
+
+tool: $(TOOL_BIN)
 
 # ---- object files -----------------------------------------------------------
 $(LIB_OBJ): vibe.c $(HEADERS)
@@ -92,6 +96,9 @@ tests/test.o: tests/test.c $(HEADERS)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 tools/vibe.o: tools/vibe.c $(HEADERS)
+	$(CC) $(CFLAGS) -I. -c -o $@ $<
+
+tools/vibe-tool.o: tools/vibe-tool.c $(HEADERS)
 	$(CC) $(CFLAGS) -I. -c -o $@ $<
 
 $(PARSER_TOOL_OBJ): vibe_parser_tool.c $(HEADERS)
@@ -115,6 +122,9 @@ $(TEST_BIN): $(TEST_OBJ) $(STATIC_LIB)
 
 $(CLI_BIN): $(CLI_OBJ) $(STATIC_LIB)
 	$(CC) $(CLI_OBJ) $(STATIC_LIB) -o $@ $(LDFLAGS)
+
+$(TOOL_BIN): $(TOOL_OBJ) $(STATIC_LIB)
+	$(CC) $(TOOL_OBJ) $(STATIC_LIB) -o $@ $(LDFLAGS)
 
 $(CONF_BIN): tests/conformance/run.c $(STATIC_LIB) $(HEADERS)
 	$(CC) $(CFLAGS) -I. -o $@ tests/conformance/run.c $(STATIC_LIB) $(LDFLAGS)
@@ -161,6 +171,10 @@ conformance: $(CONF_BIN)
 test-all: test test-suite conformance
 	@echo "All tests completed."
 
+tool-test: $(TOOL_BIN)
+	@echo "=== vibe-tool smoke test ==="
+	@./tests/tool_test.sh
+
 run: $(EXAMPLE_BIN)
 	./$(EXAMPLE_BIN) examples/simple.vibe
 
@@ -169,7 +183,7 @@ demo: $(CLI_BIN)
 	@./$(CLI_BIN) fmt examples/simple.vibe
 
 # ---- install / uninstall ----------------------------------------------------
-install: lib $(CLI_BIN) vibe.pc
+install: lib $(CLI_BIN) $(TOOL_BIN) vibe.pc
 	@echo "Installing libvibe $(VERSION) to $(DESTDIR)$(PREFIX)"
 	install -d $(DESTDIR)$(INCLUDEDIR) $(DESTDIR)$(LIBDIR) \
 	           $(DESTDIR)$(BINDIR) $(DESTDIR)$(PKGCONFIGDIR)
@@ -179,6 +193,7 @@ install: lib $(CLI_BIN) vibe.pc
 	ln -sf $(SHARED_REAL) $(DESTDIR)$(LIBDIR)/$(SHARED_SONAME)
 	ln -sf $(SHARED_SONAME) $(DESTDIR)$(LIBDIR)/$(SHARED_LINK)
 	install -m 755 $(CLI_BIN) $(DESTDIR)$(BINDIR)/
+	install -m 755 $(TOOL_BIN) $(DESTDIR)$(BINDIR)/
 	install -m 644 vibe.pc $(DESTDIR)$(PKGCONFIGDIR)/
 	@echo "Done. You may need to run 'ldconfig'."
 
@@ -189,14 +204,15 @@ uninstall:
 	rm -f $(DESTDIR)$(LIBDIR)/$(SHARED_SONAME)
 	rm -f $(DESTDIR)$(LIBDIR)/$(SHARED_LINK)
 	rm -f $(DESTDIR)$(BINDIR)/$(CLI_BIN)
+	rm -f $(DESTDIR)$(BINDIR)/$(TOOL_BIN)
 	rm -f $(DESTDIR)$(PKGCONFIGDIR)/vibe.pc
 	@echo "Uninstalled libvibe."
 
 # ---- housekeeping -----------------------------------------------------------
 clean:
-	rm -f $(LIB_OBJ) $(PIC_OBJ) vibe.lo $(EXAMPLE_OBJ) $(TEST_OBJ) $(CLI_OBJ) $(PARSER_TOOL_OBJ)
+	rm -f $(LIB_OBJ) $(PIC_OBJ) vibe.lo $(EXAMPLE_OBJ) $(TEST_OBJ) $(CLI_OBJ) $(TOOL_OBJ) $(PARSER_TOOL_OBJ)
 	rm -f $(STATIC_LIB) libvibe.so libvibe.so.* libvibe.*.dylib libvibe.dylib
-	rm -f $(EXAMPLE_BIN) $(TEST_BIN) $(CLI_BIN) $(CONF_BIN) $(PARSER_TOOL_BIN)
+	rm -f $(EXAMPLE_BIN) $(TEST_BIN) $(CLI_BIN) $(TOOL_BIN) $(CONF_BIN) $(PARSER_TOOL_BIN)
 	rm -f vibe.pc
 	rm -f *.gcov *.gcda *.gcno **/*.gcda **/*.gcno
 	@echo "Cleaned."
@@ -208,9 +224,11 @@ help:
 	@echo "  all          libraries + example + CLI (default)"
 	@echo "  lib          static (libvibe.a) + shared ($(SHARED_REAL))"
 	@echo "  cli          the 'vibe' command-line tool"
+	@echo "  tool         the 'vibe-tool' utility suite (json/tree/stats/diff/select)"
 	@echo "  test         parse the example documents"
 	@echo "  test-suite   run the unit test suite"
 	@echo "  conformance  run the language conformance suite"
+	@echo "  tool-test    smoke-test vibe-tool"
 	@echo "  test-all     run every test"
 	@echo "  docs         regenerate the Markdown-backed website pages"
 	@echo "  parser_tool  interactive TUI (requires ncurses)"

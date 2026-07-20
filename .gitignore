@@ -35,6 +35,7 @@ vibe_example
 vibe_test
 vibe_parser_tool
 /vibe
+/vibe-tool
 /tests/conformance/run
 a.out
 

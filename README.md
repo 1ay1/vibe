@@ -133,6 +133,41 @@ vibe version
 where `category` is one of the stable error codes (`unclosed-object`,
 `nested-container`, `invalid-number`, …).
 
+### 🛠️ `vibe-tool` — the utility suite
+
+A second binary, `vibe-tool`, ships alongside the CLI with a set of handy
+utilities built entirely on libvibe's public API. Every subcommand accepts a
+file path or `-` for stdin, auto-colors on a TTY (honoring `NO_COLOR`), and can
+be piped together.
+
+```bash
+vibe-tool json   config.vibe               # VIBE -> JSON (pretty)
+vibe-tool json   config.vibe --compact     # VIBE -> JSON (minified)
+vibe-tool json   data.json  --from-json    # JSON -> VIBE
+vibe-tool tree   config.vibe               # colorized structural tree
+vibe-tool stats  config.vibe               # depth, key counts, type histogram
+vibe-tool select config.vibe 'db.*.port'   # wildcard path query (* = any key)
+vibe-tool diff   old.vibe new.vibe          # semantic, order-insensitive diff
+```
+
+Example `tree` output:
+
+```
+config.vibe
+├─ name = my-service
+├─ port = 8080
+├─ tags {3}
+│  ├─ [0] = alpha
+│  └─ [1] = beta
+└─ database {2}
+   ├─ host = localhost
+   └─ port = 5432
+```
+
+`diff` exits `4` when the documents differ (handy in scripts/CI), `0` when they
+are semantically equal — object key order is ignored, only real changes show.
+Smoke-tested via `make tool-test`.
+
 ### 🎮 Interactive Parsing Tool
 
 VIBE includes a powerful **interactive parsing tool** with a beautiful TUI (Terminal User Interface) that visualizes the parsing process step-by-step:
