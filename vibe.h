@@ -1,3 +1,34 @@
+/*
+ * ============================================================================
+ * libvibe — the reference parser and emitter for the VIBE config format
+ * ============================================================================
+ *
+ * VIBE is a config format for humans: nested objects, flat scalar arrays, and
+ * exactly four scalar types (integer, float, boolean, string). It refuses the
+ * features that turn config into a programming language — no anchors, no
+ * includes, no templates, no variable substitution, no implicit coercion.
+ *
+ * This single header is the entire public API. Pair it with vibe.c (or link
+ * against libvibe). No global init, no build-time configuration required.
+ *
+ *   VibeParser *p   = vibe_parser_new();
+ *   VibeValue  *cfg = vibe_parse_file(p, "config.vibe");
+ *   if (!cfg) { VibeError e = vibe_get_last_error(p); ... }
+ *   const char *host = vibe_get_string(cfg, "server.host");
+ *   vibe_value_free(cfg);
+ *   vibe_parser_free(p);
+ *
+ * Design guarantees:
+ *   - No global mutable state beyond the optional allocator hooks; every parse
+ *     is independent and re-entrant across threads (one VibeParser per thread).
+ *   - Fails closed: malformed or oversized input is rejected with a stable
+ *     error code, never silently truncated or coerced.
+ *   - Round-trips: vibe_emit() serialises a value tree back to canonical VIBE
+ *     text that re-parses to an equal tree.
+ *
+ * License: see LICENSE. SPDX-License-Identifier: MIT
+ */
+
 #ifndef VIBE_H
 #define VIBE_H
 
@@ -5,838 +36,350 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-/*
- * ============================================================================
- * VIBE Parser - Dead Simple Config Format Parser
- * ============================================================================
- *
- * This is the main header you'll need. Just include this and you're good to go.
- * No complicated setup, no weird dependencies, just straightforward C.
- *
- * VIBE is a minimalist configuration format designed to be human-readable and
- * easy to parse. It supports nested objects, arrays, and basic data types
- * without the verbosity of JSON or the complexity of YAML.
- *
- * Quick Start:
- *   1. Create a parser: VibeParser *parser = vibe_parser_new();
- *   2. Parse your config: VibeValue *root = vibe_parse_file(parser, "config.vibe");
- *   3. Access values: const char *host = vibe_get_string(root, "server.host");
- *   4. Clean up: vibe_value_free(root); vibe_parser_free(parser);
- *
- * That's it! No initialization, no context setup, just parse and go.
- */
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /* ============================================================================
- * TYPE DEFINITIONS
+ * VERSION
+ * ============================================================================
+ * VIBE_VERSION_* is the version of THIS LIBRARY (libvibe). VIBE_FORMAT_VERSION
+ * is the version of the language it implements. They advance independently.
+ */
+#define VIBE_VERSION_MAJOR 1
+#define VIBE_VERSION_MINOR 1
+#define VIBE_VERSION_PATCH 0
+#define VIBE_VERSION_STRING "1.1.0"
+#define VIBE_VERSION_NUMBER \
+    (VIBE_VERSION_MAJOR * 10000 + VIBE_VERSION_MINOR * 100 + VIBE_VERSION_PATCH)
+
+/* The VIBE language level this build parses and emits. */
+#define VIBE_FORMAT_VERSION "1.0"
+
+/* ============================================================================
+ * SYMBOL VISIBILITY
+ * ============================================================================
+ * Define VIBE_BUILD_SHARED when compiling the shared library, and
+ * VIBE_USE_SHARED when consuming it as a DLL on Windows. Static use needs
+ * neither.
+ */
+#if defined(_WIN32) || defined(__CYGWIN__)
+#  if defined(VIBE_BUILD_SHARED)
+#    define VIBE_API __declspec(dllexport)
+#  elif defined(VIBE_USE_SHARED)
+#    define VIBE_API __declspec(dllimport)
+#  else
+#    define VIBE_API
+#  endif
+#elif defined(VIBE_BUILD_SHARED) && (defined(__GNUC__) || defined(__clang__))
+#  define VIBE_API __attribute__((visibility("default")))
+#else
+#  define VIBE_API
+#endif
+
+/* ============================================================================
+ * VALUE TYPES
  * ============================================================================ */
 
-/**
- * VibeType - Type identifier for values
- *
- * Every value in VIBE has a type. This enum tells you what kind of data
- * you're looking at. Use this to safely cast values or determine how to
- * process them.
- *
- * Type mapping:
- *   - NULL:    Absence of value (like JSON null)
- *   - INTEGER: 64-bit signed integer (-9,223,372,036,854,775,808 to 9,223,372,036,854,775,807)
- *   - FLOAT:   IEEE 754 double precision (about 15-17 significant digits)
- *   - BOOLEAN: true or false (stored as a byte but only uses 1 bit conceptually)
- *   - STRING:  UTF-8 text, null-terminated C string
- *   - ARRAY:   Ordered list of values (can be mixed types)
- *   - OBJECT:  Key-value map (like a hash table or dictionary)
- */
+/** The type tag carried by every VibeValue. */
 typedef enum {
-    VIBE_TYPE_NULL = 0,     // Nothing, nada, zilch - absence of value
-    VIBE_TYPE_INTEGER,      // Whole numbers: 42, -7, 1000
-    VIBE_TYPE_FLOAT,        // Decimals: 3.14, -0.5, 2.71828
-    VIBE_TYPE_BOOLEAN,      // true or false (that's it)
-    VIBE_TYPE_STRING,       // Text: "hello", "foo bar", etc.
-    VIBE_TYPE_ARRAY,        // Lists: [item1 item2 item3]
-    VIBE_TYPE_OBJECT        // Nested groups: key { ... }
+    VIBE_TYPE_NULL = 0,   /* absence of value (never produced by the parser) */
+    VIBE_TYPE_INTEGER,    /* 64-bit signed integer */
+    VIBE_TYPE_FLOAT,      /* IEEE-754 double */
+    VIBE_TYPE_BOOLEAN,    /* true / false */
+    VIBE_TYPE_STRING,     /* UTF-8 text (heap owned) */
+    VIBE_TYPE_ARRAY,      /* ordered list of scalars (never objects/arrays) */
+    VIBE_TYPE_OBJECT      /* ordered set of key -> value entries */
 } VibeType;
 
-// Forward declarations - these types reference each other
-// (objects contain values, values can be objects... circular deps, you know)
 typedef struct VibeValue VibeValue;
 typedef struct VibeObject VibeObject;
 typedef struct VibeArray VibeArray;
 
-/**
- * VibeObjectEntry - A single key-value pair in an object
- *
- * Objects are collections of these entries. Each entry is just a name
- * (the key) pointing to any value (which can be any type).
- *
- * Memory ownership: The object owns both the key string and the value.
- * When you free the object, these get freed too.
- */
+/** One key/value pair inside an object. Keys are heap-owned UTF-8. */
 typedef struct {
-    char* key;              // The name (e.g., "port", "database", etc.)
-    VibeValue* value;       // What it points to (could be anything)
+    char* key;
+    VibeValue* value;
 } VibeObjectEntry;
 
-/**
- * VibeObject - A collection of key-value pairs
- *
- * Objects are basically hash maps with an array backend. We grow the array
- * as needed using the classic dynamic array pattern. Keys are unique within
- * an object (setting a key twice overwrites the first value).
- *
- * Implementation note: We use linear search for key lookups. For typical
- * config files with < 100 keys per object, this is faster than hashing
- * due to better cache locality. If you need thousands of keys, consider
- * a different data structure.
- */
+/** An object: an insertion-ordered collection of key/value pairs. */
 struct VibeObject {
-    VibeObjectEntry* entries;   // Our key-value pairs live here
-    size_t count;                // How many entries we actually have
-    size_t capacity;             // How many we *could* have before realloc
+    VibeObjectEntry* entries;
+    size_t count;
+    size_t capacity;
 };
 
-/**
- * VibeArray - An ordered list of values
- *
- * Arrays are just lists of values - dead simple. They preserve insertion
- * order and allow duplicates. Again using the dynamic array pattern because
- * it works and it's fast for typical use cases.
- *
- * Arrays can hold mixed types. For example: [42 "hello" true 3.14] is valid.
- */
+/** An array: an insertion-ordered list of scalar values. */
 struct VibeArray {
-    VibeValue** values;         // Pointers to our values
-    size_t count;               // How many items in the list
-    size_t capacity;            // Space we've allocated
+    VibeValue** values;
+    size_t count;
+    size_t capacity;
 };
 
 /**
- * VibeValue - The main value container
- *
- * This is the universal value type. Everything in VIBE becomes one of these.
- * We use a tagged union so we don't waste memory storing all possible types
- * at once - only the active type takes up space.
- *
- * Memory model: VibeValue owns its data. When you free a value, it
- * recursively frees any nested objects, arrays, and strings.
- *
- * Thread safety: Not thread-safe. Don't share values across threads without
- * external synchronization.
+ * The universal tagged-union value. Inspect .type, then read the matching
+ * union member. A value owns everything it points to; vibe_value_free()
+ * releases the whole subtree.
  */
 struct VibeValue {
-    VibeType type;              // What flavor of value is this?
+    VibeType type;
     union {
-        int64_t as_integer;     // For whole numbers (64-bit, plenty of room)
-        double as_float;        // For decimals (IEEE 754 double precision)
-        bool as_boolean;        // true/false (just a byte really)
-        char* as_string;        // Heap-allocated text (we own this memory)
-        VibeArray* as_array;    // Pointer to array (also heap-allocated)
-        VibeObject* as_object;  // Pointer to nested object
+        int64_t as_integer;
+        double as_float;
+        bool as_boolean;
+        char* as_string;
+        VibeArray* as_array;
+        VibeObject* as_object;
     };
 };
 
-/**
- * VibeError - Error information from parsing
- *
- * When something goes wrong during parsing, we store the details here.
- * Line and column numbers help you find the problem in your config file.
- *
- * Check has_error first before reading the other fields. If has_error is
- * false, the other fields are undefined.
- */
-typedef struct {
-    bool has_error;             // Did anything go wrong?
-    char* message;              // Human-readable explanation
-    int line;                   // Which line in the file (1-indexed)
-    int column;                 // Which column on that line (1-indexed)
-} VibeError;
+/* ============================================================================
+ * ERRORS
+ * ============================================================================ */
 
 /**
- * VibeParser - The parser state machine
- *
- * This structure keeps track of where we are in the input and any errors
- * we've encountered. Think of it as our reading position + error buffer.
- *
- * You don't typically manipulate this directly - just create it with
- * vibe_parser_new(), use it for parsing, then free it with vibe_parser_free().
- *
- * The parser doesn't own the input string (we just keep a pointer to it),
- * so make sure the input stays valid for the lifetime of the parser.
+ * Stable, machine-comparable error categories. The first eleven map 1:1 to the
+ * error codes defined normatively in SPECIFICATION.md; the last two cover
+ * non-parse failures (I/O, allocation). Use vibe_error_code_string() to get the
+ * canonical spelling ("unclosed-object", ...).
+ */
+typedef enum {
+    VIBE_OK = 0,
+    VIBE_ERROR_ENCODING,            /* "encoding-error"       */
+    VIBE_ERROR_ILLEGAL_CHARACTER,   /* "illegal-character"    */
+    VIBE_ERROR_UNEXPECTED_TOKEN,    /* "unexpected-token"     */
+    VIBE_ERROR_UNCLOSED_OBJECT,     /* "unclosed-object"      */
+    VIBE_ERROR_UNCLOSED_ARRAY,      /* "unclosed-array"       */
+    VIBE_ERROR_UNTERMINATED_STRING, /* "unterminated-string"  */
+    VIBE_ERROR_NESTED_CONTAINER,    /* "nested-container"     */
+    VIBE_ERROR_INVALID_ESCAPE,      /* "invalid-escape"       */
+    VIBE_ERROR_INVALID_NUMBER,      /* "invalid-number"       */
+    VIBE_ERROR_LIMIT_EXCEEDED,      /* "limit-exceeded"       */
+    VIBE_ERROR_IO,                  /* "io-error"    (non-parse) */
+    VIBE_ERROR_OUT_OF_MEMORY        /* "out-of-memory" (non-parse) */
+} VibeErrorCode;
+
+/**
+ * Details of the most recent failure. Check has_error first; when true, code is
+ * the stable category, message is a human-readable explanation, and line/column
+ * are 1-based positions into the source. The message is owned by the parser and
+ * remains valid until the next parse or vibe_parser_free().
  */
 typedef struct {
-    const char* input;          // The text we're parsing (we don't own this)
-    size_t pos;                 // Current byte offset
-    size_t length;              // Total input length
-    int line;                   // Current line number (for error messages)
-    int column;                 // Current column (also for errors)
-    VibeError error;            // If we messed up, details are here
+    bool has_error;
+    VibeErrorCode code;
+    char* message;
+    int line;
+    int column;
+} VibeError;
+
+/* Canonical hyphenated spelling of an error code, e.g. "unclosed-object". */
+VIBE_API const char* vibe_error_code_string(VibeErrorCode code);
+
+/* ============================================================================
+ * RESOURCE LIMITS
+ * ============================================================================
+ * Bounds enforced while parsing so that untrusted input cannot exhaust memory
+ * or the stack. Defaults are the REQUIRED minimums from SPECIFICATION.md; every
+ * conforming parser accepts at least this much, so a document within these
+ * bounds is portable. Raise them via vibe_parser_set_limits() when you trust
+ * the source. Exceeding any bound yields VIBE_ERROR_LIMIT_EXCEEDED.
+ */
+typedef struct {
+    size_t max_document_size;   /* total input bytes            (default 16 MiB) */
+    size_t max_depth;           /* object/array nesting levels  (default 64)     */
+    size_t max_string_length;   /* decoded quoted-string bytes  (default 1 MiB)  */
+    size_t max_key_length;      /* key bytes                    (default 1 KiB)  */
+    size_t max_array_elements;  /* elements in one array        (default 65536)  */
+    size_t max_object_keys;     /* keys in one object           (default 65536)  */
+    size_t max_number_digits;   /* chars in one numeric token   (default 1024)   */
+} VibeLimits;
+
+/** The default (spec-minimum) limits. */
+VIBE_API VibeLimits vibe_default_limits(void);
+
+/* ============================================================================
+ * ALLOCATOR HOOKS
+ * ============================================================================
+ * Optional. Install a custom allocator ONCE at startup, before any other libvibe
+ * call, and do not change it while values are live (it is used to both allocate
+ * and free them). Passing NULL for any function resets that slot to the C
+ * standard library. Not thread-safe to call concurrently with other libvibe
+ * work; treat it as one-time configuration.
+ */
+VIBE_API void vibe_set_allocators(void* (*malloc_fn)(size_t),
+                                  void* (*realloc_fn)(void*, size_t),
+                                  void  (*free_fn)(void*));
+
+/** Allocate/free through the installed hooks. Use vibe_free() on any buffer
+ *  libvibe hands back to you (e.g. from vibe_emit()). */
+VIBE_API void* vibe_malloc(size_t size);
+VIBE_API void  vibe_free(void* ptr);
+
+/* ============================================================================
+ * VERSION QUERIES
+ * ============================================================================ */
+
+/** Runtime library version string, e.g. "1.1.0". */
+VIBE_API const char* vibe_version(void);
+/** Runtime library version as MAJOR*10000 + MINOR*100 + PATCH. */
+VIBE_API int vibe_version_number(void);
+/** The VIBE language level this build implements, e.g. "1.0". */
+VIBE_API const char* vibe_format_version(void);
+
+/* ============================================================================
+ * PARSER STATE
+ * ============================================================================
+ * A reusable parse context: current position plus the last error. Create with
+ * vibe_parser_new(), reuse across many parses, free with vibe_parser_free().
+ * The position fields are exposed for tooling/visualisation; treat them as
+ * read-only during a parse.
+ */
+typedef struct {
+    const char* input;   /* current source (not owned)     */
+    size_t pos;          /* byte offset into input         */
+    size_t length;       /* length of input in bytes       */
+    int line;            /* current line   (1-based)       */
+    int column;          /* current column (1-based)       */
+    VibeError error;     /* details of the last failure    */
+    VibeLimits limits;   /* bounds enforced while parsing  */
 } VibeParser;
 
 /* ============================================================================
  * PARSER LIFECYCLE
  * ============================================================================ */
 
-/**
- * vibe_parser_new - Create a new parser instance
- *
- * Allocates and initializes a fresh parser. Always pair this with
- * vibe_parser_free() when you're done.
- *
- * Returns:
- *   A new parser instance, or NULL if allocation failed.
- *
- * Example:
- *   VibeParser *parser = vibe_parser_new();
- *   if (!parser) {
- *       fprintf(stderr, "Out of memory!\n");
- *       return 1;
- *   }
- *   // ... use parser ...
- *   vibe_parser_free(parser);
- *
- * Note: The parser is stateful. Don't reuse the same parser for multiple
- * parse operations without resetting it.
- */
-VibeParser* vibe_parser_new(void);
+/** Create a parser with default limits. Returns NULL on allocation failure. */
+VIBE_API VibeParser* vibe_parser_new(void);
 
-/**
- * vibe_parser_free - Free a parser instance
- *
- * Releases all memory associated with the parser, including any error
- * messages. After calling this, the parser pointer is invalid.
- *
- * Parameters:
- *   parser - The parser to free (can be NULL, in which case this is a no-op)
- *
- * Example:
- *   VibeParser *parser = vibe_parser_new();
- *   // ... use parser ...
- *   vibe_parser_free(parser);
- *   parser = NULL;  // Good practice to avoid use-after-free
- */
-void vibe_parser_free(VibeParser* parser);
+/** Free a parser and its error buffer. NULL-safe. */
+VIBE_API void vibe_parser_free(VibeParser* parser);
+
+/** Replace the parser's resource limits. NULL restores the defaults. */
+VIBE_API void vibe_parser_set_limits(VibeParser* parser, const VibeLimits* limits);
 
 /* ============================================================================
- * PARSING FUNCTIONS
- * ============================================================================ */
-
-/**
- * vibe_parse_string - Parse a VIBE config from a string
- *
- * Takes a string containing VIBE configuration and parses it into a tree
- * of VibeValue structures. This is the main parsing entry point.
- *
- * Parameters:
- *   parser - The parser instance to use
- *   input  - The VIBE config string (must be null-terminated)
- *
- * Returns:
- *   A VibeValue representing the root of the parsed config, or NULL if
- *   parsing failed. Check parser->error for details.
- *
- * Example:
- *   VibeParser *parser = vibe_parser_new();
- *   const char *config = "server { port 8080 host localhost }";
- *   VibeValue *root = vibe_parse_string(parser, config);
- *
- *   if (!root) {
- *       fprintf(stderr, "Parse error at %d:%d: %s\n",
- *               parser->error.line, parser->error.column,
- *               parser->error.message);
- *       vibe_parser_free(parser);
- *       return 1;
- *   }
- *
- *   // Use root...
- *   vibe_value_free(root);
- *   vibe_parser_free(parser);
- *
- * Memory: The returned VibeValue is heap-allocated. You must free it with
- * vibe_value_free() when done.
- *
- * Note: The parser keeps a pointer to the input string, so the string must
- * remain valid for the duration of parsing.
+ * PARSING
+ * ============================================================================
+ * All return a heap-allocated root VibeValue (of type OBJECT) on success, or
+ * NULL on failure — call vibe_get_last_error() for details. Free the result
+ * with vibe_value_free(). The input is not retained after the call returns.
  */
-VibeValue* vibe_parse_string(VibeParser* parser, const char* input);
 
-/**
- * vibe_parse_file - Parse a VIBE config from a file
- *
- * Reads a file and parses its contents as VIBE configuration. This is a
- * convenience wrapper around vibe_parse_string() that handles file I/O.
- *
- * Parameters:
- *   parser   - The parser instance to use
- *   filename - Path to the file to parse
- *
- * Returns:
- *   A VibeValue representing the root of the parsed config, or NULL if
- *   the file couldn't be read or parsing failed.
- *
- * Example:
- *   VibeParser *parser = vibe_parser_new();
- *   VibeValue *config = vibe_parse_file(parser, "/etc/myapp/config.vibe");
- *
- *   if (!config) {
- *       if (parser->error.has_error) {
- *           fprintf(stderr, "Parse error: %s\n", parser->error.message);
- *       } else {
- *           fprintf(stderr, "Could not read file\n");
- *       }
- *       vibe_parser_free(parser);
- *       return 1;
- *   }
- *
- *   // Use config...
- *   vibe_value_free(config);
- *   vibe_parser_free(parser);
- *
- * Memory: The returned VibeValue is heap-allocated. You must free it with
- * vibe_value_free() when done.
- *
- * Errors: File I/O errors (file not found, permissions, etc.) will result
- * in a NULL return but won't set parser->error. Parse errors will set
- * parser->error appropriately.
- */
-VibeValue* vibe_parse_file(VibeParser* parser, const char* filename);
+/** Parse a NUL-terminated string. Embedded NUL bytes truncate the input;
+ *  use vibe_parse_buffer() for data that may contain NUL. */
+VIBE_API VibeValue* vibe_parse_string(VibeParser* parser, const char* input);
+
+/** Parse exactly `length` bytes (NUL-safe, length-aware). */
+VIBE_API VibeValue* vibe_parse_buffer(VibeParser* parser, const char* data, size_t length);
+
+/** Read a file fully and parse it. */
+VIBE_API VibeValue* vibe_parse_file(VibeParser* parser, const char* filename);
+
+/** Stateless one-shot parse: no parser object required. On failure returns NULL
+ *  and, if out_error is non-NULL, fills it with an owned copy of the error that
+ *  the caller frees with vibe_error_free(). */
+VIBE_API VibeValue* vibe_parse(const char* data, size_t length, VibeError* out_error);
 
 /* ============================================================================
- * VALUE CONSTRUCTION
+ * ERROR RETRIEVAL
  * ============================================================================ */
 
-/**
- * vibe_value_new_integer - Create an integer value
- *
- * Creates a new VibeValue containing a 64-bit signed integer.
- *
- * Parameters:
- *   value - The integer to store
- *
- * Returns:
- *   A new VibeValue of type VIBE_TYPE_INTEGER, or NULL on allocation failure.
- *
- * Example:
- *   VibeValue *port = vibe_value_new_integer(8080);
- *   // Use port...
- *   vibe_value_free(port);
- *
- * Range: -9,223,372,036,854,775,808 to 9,223,372,036,854,775,807
- */
-VibeValue* vibe_value_new_integer(int64_t value);
+/** Snapshot the parser's last error. The returned message aliases the parser's
+ *  buffer; do not free it and do not call vibe_error_free() on this copy. */
+VIBE_API VibeError vibe_get_last_error(VibeParser* parser);
 
-/**
- * vibe_value_new_float - Create a floating-point value
- *
- * Creates a new VibeValue containing an IEEE 754 double-precision float.
- *
- * Parameters:
- *   value - The float to store
- *
- * Returns:
- *   A new VibeValue of type VIBE_TYPE_FLOAT, or NULL on allocation failure.
- *
- * Example:
- *   VibeValue *timeout = vibe_value_new_float(3.5);
- *   // Use timeout...
- *   vibe_value_free(timeout);
- *
- * Precision: About 15-17 significant decimal digits. Be aware of floating-point
- * rounding issues if you need exact decimal representation.
- */
-VibeValue* vibe_value_new_float(double value);
-
-/**
- * vibe_value_new_boolean - Create a boolean value
- *
- * Creates a new VibeValue containing a boolean (true or false).
- *
- * Parameters:
- *   value - The boolean to store (non-zero is true, zero is false)
- *
- * Returns:
- *   A new VibeValue of type VIBE_TYPE_BOOLEAN, or NULL on allocation failure.
- *
- * Example:
- *   VibeValue *debug = vibe_value_new_boolean(true);
- *   VibeValue *production = vibe_value_new_boolean(false);
- *   // Use values...
- *   vibe_value_free(debug);
- *   vibe_value_free(production);
- */
-VibeValue* vibe_value_new_boolean(bool value);
-
-/**
- * vibe_value_new_string - Create a string value
- *
- * Creates a new VibeValue containing a copy of the provided string.
- * The string is duplicated, so you can free the original after calling this.
- *
- * Parameters:
- *   value - The string to store (must be null-terminated)
- *
- * Returns:
- *   A new VibeValue of type VIBE_TYPE_STRING, or NULL on allocation failure.
- *
- * Example:
- *   VibeValue *host = vibe_value_new_string("localhost");
- *   // Original string can be freed or go out of scope
- *   // Use host...
- *   vibe_value_free(host);
- *
- * Memory: The string is copied internally, so modifications to the original
- * won't affect the VibeValue.
- *
- * Note: The string should be valid UTF-8 for proper display, but this isn't
- * enforced. Binary data will work but may cause issues with printing.
- */
-VibeValue* vibe_value_new_string(const char* value);
-
-/**
- * vibe_value_new_array - Create an empty array
- *
- * Creates a new VibeValue containing an empty array. Use vibe_array_push()
- * to add elements to it.
- *
- * Returns:
- *   A new VibeValue of type VIBE_TYPE_ARRAY, or NULL on allocation failure.
- *
- * Example:
- *   VibeValue *arr = vibe_value_new_array();
- *   vibe_array_push(arr->as_array, vibe_value_new_integer(1));
- *   vibe_array_push(arr->as_array, vibe_value_new_integer(2));
- *   vibe_array_push(arr->as_array, vibe_value_new_integer(3));
- *   // arr now contains [1, 2, 3]
- *   vibe_value_free(arr);  // This frees all elements too
- *
- * Initial capacity: The array starts with a small capacity and grows
- * automatically as needed. Growth is typically 2x on reallocation.
- */
-VibeValue* vibe_value_new_array(void);
-
-/**
- * vibe_value_new_object - Create an empty object
- *
- * Creates a new VibeValue containing an empty object. Use vibe_object_set()
- * to add key-value pairs to it.
- *
- * Returns:
- *   A new VibeValue of type VIBE_TYPE_OBJECT, or NULL on allocation failure.
- *
- * Example:
- *   VibeValue *obj = vibe_value_new_object();
- *   vibe_object_set(obj->as_object, "port", vibe_value_new_integer(8080));
- *   vibe_object_set(obj->as_object, "host", vibe_value_new_string("localhost"));
- *   // obj now contains { port 8080 host localhost }
- *   vibe_value_free(obj);  // This frees all key-value pairs too
- *
- * Initial capacity: The object starts with a small capacity and grows
- * automatically as needed.
- */
-VibeValue* vibe_value_new_object(void);
+/** Free an owned error (only the one produced by vibe_parse()). NULL-safe. */
+VIBE_API void vibe_error_free(VibeError* error);
 
 /* ============================================================================
- * VALUE ACCESS - PATH-BASED
- * ============================================================================ */
-
-/**
- * vibe_get - Get a value by path
- *
- * Navigates through nested objects using dot notation to find a value.
- * This is the most convenient way to access deeply nested config values.
- *
- * Parameters:
- *   root - The root value to search from (typically an object)
- *   path - Dot-separated path like "server.database.port"
- *
- * Returns:
- *   The value at the specified path, or NULL if the path doesn't exist.
- *
- * Example:
- *   // Config: server { database { host localhost port 5432 } }
- *   VibeValue *db_port = vibe_get(root, "server.database.port");
- *   if (db_port && db_port->type == VIBE_TYPE_INTEGER) {
- *       printf("Port: %lld\n", (long long)db_port->as_integer);
- *   }
- *
- * Path syntax: Paths are dot-separated sequences of keys. Each segment must
- * be a valid key in an object. Array indexing is not supported in paths
- * (use vibe_array_get() for arrays).
- *
- * Note: Returns a pointer to the value, NOT a copy. Don't free the returned
- * value separately - it's owned by the parent structure.
+ * VALUE CONSTRUCTORS
+ * ============================================================================
+ * Each returns a new heap value, or NULL on allocation failure. String
+ * constructors copy their input. Free the whole tree with vibe_value_free().
  */
-VibeValue* vibe_get(VibeValue* root, const char* path);
+VIBE_API VibeValue* vibe_value_new_null(void);
+VIBE_API VibeValue* vibe_value_new_integer(int64_t value);
+VIBE_API VibeValue* vibe_value_new_float(double value);
+VIBE_API VibeValue* vibe_value_new_boolean(bool value);
+VIBE_API VibeValue* vibe_value_new_string(const char* value);
+VIBE_API VibeValue* vibe_value_new_string_len(const char* value, size_t length);
+VIBE_API VibeValue* vibe_value_new_array(void);
+VIBE_API VibeValue* vibe_value_new_object(void);
 
-/**
- * vibe_get_string - Get a string value by path
- *
- * Convenience wrapper that gets a value and returns it as a string.
- * Returns NULL if the path doesn't exist or the value isn't a string.
- *
- * Parameters:
- *   value - The root value to search from
- *   path  - Dot-separated path
- *
- * Returns:
- *   The string value, or NULL if not found or wrong type.
- *
- * Example:
- *   const char *host = vibe_get_string(root, "server.host");
- *   if (host) {
- *       printf("Host: %s\n", host);
- *   } else {
- *       printf("Host not configured\n");
- *   }
- *
- * Note: The returned string is owned by the VibeValue. Don't free it or
- * modify it. If you need to keep it, make a copy with strdup().
- */
-const char* vibe_get_string(VibeValue* value, const char* path);
-
-/**
- * vibe_get_int - Get an integer value by path
- *
- * Convenience wrapper that gets a value and returns it as an integer.
- * Returns 0 if the path doesn't exist or the value isn't an integer.
- *
- * Parameters:
- *   value - The root value to search from
- *   path  - Dot-separated path
- *
- * Returns:
- *   The integer value, or 0 if not found or wrong type.
- *
- * Example:
- *   int64_t port = vibe_get_int(root, "server.port");
- *   printf("Port: %lld\n", (long long)port);
- *
- * Warning: Can't distinguish between "value is 0" and "value not found".
- * If you need to know whether the key exists, use vibe_get() and check
- * the type explicitly.
- */
-int64_t vibe_get_int(VibeValue* value, const char* path);
-
-/**
- * vibe_get_float - Get a float value by path
- *
- * Convenience wrapper that gets a value and returns it as a float.
- * Returns 0.0 if the path doesn't exist or the value isn't a float.
- *
- * Parameters:
- *   value - The root value to search from
- *   path  - Dot-separated path
- *
- * Returns:
- *   The float value, or 0.0 if not found or wrong type.
- *
- * Example:
- *   double timeout = vibe_get_float(root, "server.timeout");
- *   printf("Timeout: %.2f seconds\n", timeout);
- *
- * Warning: Can't distinguish between "value is 0.0" and "value not found".
- */
-double vibe_get_float(VibeValue* value, const char* path);
-
-/**
- * vibe_get_bool - Get a boolean value by path
- *
- * Convenience wrapper that gets a value and returns it as a boolean.
- * Returns false if the path doesn't exist or the value isn't a boolean.
- *
- * Parameters:
- *   value - The root value to search from
- *   path  - Dot-separated path
- *
- * Returns:
- *   The boolean value, or false if not found or wrong type.
- *
- * Example:
- *   bool debug = vibe_get_bool(root, "app.debug");
- *   if (debug) {
- *       enable_debug_logging();
- *   }
- *
- * Warning: Can't distinguish between "value is false" and "value not found".
- */
-bool vibe_get_bool(VibeValue* value, const char* path);
-
-/**
- * vibe_get_array - Get an array by path
- *
- * Convenience wrapper that gets a value and returns it as an array.
- * Returns NULL if the path doesn't exist or the value isn't an array.
- *
- * Parameters:
- *   value - The root value to search from
- *   path  - Dot-separated path
- *
- * Returns:
- *   Pointer to the VibeArray, or NULL if not found or wrong type.
- *
- * Example:
- *   VibeArray *servers = vibe_get_array(root, "cluster.servers");
- *   if (servers) {
- *       for (size_t i = 0; i < servers->count; i++) {
- *           VibeValue *server = servers->values[i];
- *           // Process server...
- *       }
- *   }
- *
- * Note: The returned array is owned by the parent VibeValue. Don't free it.
- */
-VibeArray* vibe_get_array(VibeValue* value, const char* path);
-
-/**
- * vibe_get_object - Get an object by path
- *
- * Convenience wrapper that gets a value and returns it as an object.
- * Returns NULL if the path doesn't exist or the value isn't an object.
- *
- * Parameters:
- *   value - The root value to search from
- *   path  - Dot-separated path
- *
- * Returns:
- *   Pointer to the VibeObject, or NULL if not found or wrong type.
- *
- * Example:
- *   VibeObject *db = vibe_get_object(root, "server.database");
- *   if (db) {
- *       for (size_t i = 0; i < db->count; i++) {
- *           printf("%s = ...\n", db->entries[i].key);
- *       }
- *   }
- *
- * Note: The returned object is owned by the parent VibeValue. Don't free it.
- */
-VibeObject* vibe_get_object(VibeValue* value, const char* path);
+/** Deep-copy a value and everything it owns. NULL on failure. */
+VIBE_API VibeValue* vibe_value_clone(const VibeValue* value);
 
 /* ============================================================================
- * OBJECT MANIPULATION
- * ============================================================================ */
-
-/**
- * vibe_object_set - Set a key-value pair in an object
- *
- * Adds or updates a key-value pair in an object. If the key already exists,
- * the old value is freed and replaced with the new one.
- *
- * Parameters:
- *   obj   - The object to modify
- *   key   - The key (will be copied internally)
- *   value - The value to store (ownership transferred to the object)
- *
- * Example:
- *   VibeObject *obj = vibe_value_new_object()->as_object;
- *   vibe_object_set(obj, "port", vibe_value_new_integer(8080));
- *   vibe_object_set(obj, "host", vibe_value_new_string("localhost"));
- *
- *   // Updating an existing key frees the old value
- *   vibe_object_set(obj, "port", vibe_value_new_integer(9000));
- *
- * Memory: The object takes ownership of the value. Don't free it yourself.
- * The key string is copied, so you can free your copy after calling this.
- *
- * Performance: O(n) for key lookup (linear search). For most config files
- * with < 100 keys per object, this is fine and often faster than hashing.
+ * PATH ACCESS  (dotted paths, e.g. "server.tls.port")
+ * ============================================================================
+ * Convenience readers that walk objects by dotted key. The plain readers return
+ * a zero/NULL sentinel when the path is missing or the wrong type; the *_or
+ * variants let you supply the fallback explicitly.
  */
-void vibe_object_set(VibeObject* obj, const char* key, VibeValue* value);
+VIBE_API VibeValue* vibe_get(VibeValue* root, const char* path);
+VIBE_API const char* vibe_get_string(VibeValue* value, const char* path);
+VIBE_API int64_t vibe_get_int(VibeValue* value, const char* path);
+VIBE_API double vibe_get_float(VibeValue* value, const char* path);
+VIBE_API bool vibe_get_bool(VibeValue* value, const char* path);
+VIBE_API VibeArray* vibe_get_array(VibeValue* value, const char* path);
+VIBE_API VibeObject* vibe_get_object(VibeValue* value, const char* path);
 
-/**
- * vibe_object_get - Get a value from an object by key
- *
- * Looks up a key in an object and returns the associated value.
- *
- * Parameters:
- *   obj - The object to search
- *   key - The key to look up
- *
- * Returns:
- *   The value associated with the key, or NULL if not found.
- *
- * Example:
- *   VibeValue *port = vibe_object_get(obj, "port");
- *   if (port && port->type == VIBE_TYPE_INTEGER) {
- *       printf("Port: %lld\n", (long long)port->as_integer);
- *   }
- *
- * Note: Returns a pointer to the value, NOT a copy. The object still owns
- * the value, so don't free it.
- *
- * Performance: O(n) linear search through keys.
- */
-VibeValue* vibe_object_get(VibeObject* obj, const char* key);
+VIBE_API const char* vibe_get_string_or(VibeValue* value, const char* path, const char* fallback);
+VIBE_API int64_t vibe_get_int_or(VibeValue* value, const char* path, int64_t fallback);
+VIBE_API double vibe_get_float_or(VibeValue* value, const char* path, double fallback);
+VIBE_API bool vibe_get_bool_or(VibeValue* value, const char* path, bool fallback);
 
 /* ============================================================================
- * ARRAY MANIPULATION
+ * CONTAINER MANIPULATION
  * ============================================================================ */
 
-/**
- * vibe_array_push - Append a value to an array
- *
- * Adds a value to the end of an array. The array grows automatically if
- * needed.
- *
- * Parameters:
- *   arr   - The array to modify
- *   value - The value to append (ownership transferred to the array)
- *
- * Example:
- *   VibeArray *arr = vibe_value_new_array()->as_array;
- *   vibe_array_push(arr, vibe_value_new_string("first"));
- *   vibe_array_push(arr, vibe_value_new_string("second"));
- *   vibe_array_push(arr, vibe_value_new_string("third"));
- *   // arr now contains ["first", "second", "third"]
- *
- * Memory: The array takes ownership of the value. Don't free it yourself.
- *
- * Performance: Amortized O(1). When the array needs to grow, it typically
- * doubles in capacity, so most pushes don't require reallocation.
- */
-void vibe_array_push(VibeArray* arr, VibeValue* value);
+/** Insert or replace `key` in `object`, taking ownership of `value`. Replacing
+ *  an existing key frees the old value (last-wins, matching the parser). */
+VIBE_API void vibe_object_set(VibeObject* object, const char* key, VibeValue* value);
 
-/**
- * vibe_array_get - Get a value from an array by index
- *
- * Retrieves a value at a specific index in an array. Indices are zero-based.
- *
- * Parameters:
- *   arr   - The array to access
- *   index - The zero-based index
- *
- * Returns:
- *   The value at the specified index, or NULL if index is out of bounds.
- *
- * Example:
- *   VibeArray *servers = vibe_get_array(root, "cluster.servers");
- *   for (size_t i = 0; i < servers->count; i++) {
- *       VibeValue *server = vibe_array_get(servers, i);
- *       if (server && server->type == VIBE_TYPE_STRING) {
- *           printf("Server %zu: %s\n", i, server->as_string);
- *       }
- *   }
- *
- * Bounds checking: Returns NULL for out-of-bounds indices. Always check
- * against arr->count before accessing.
- *
- * Note: Returns a pointer to the value, NOT a copy. The array still owns
- * the value, so don't free it.
- */
-VibeValue* vibe_array_get(VibeArray* arr, size_t index);
+/** Look up a key. Returns the stored value (not a copy), or NULL if absent. */
+VIBE_API VibeValue* vibe_object_get(VibeObject* object, const char* key);
+
+/** Number of entries in an object (0 if NULL). */
+VIBE_API size_t vibe_object_size(const VibeObject* object);
+
+/** Append `value` to `array`, taking ownership. */
+VIBE_API void vibe_array_push(VibeArray* array, VibeValue* value);
+
+/** Element at `index` (not a copy), or NULL if out of range. */
+VIBE_API VibeValue* vibe_array_get(VibeArray* array, size_t index);
+
+/** Number of elements in an array (0 if NULL). */
+VIBE_API size_t vibe_array_size(const VibeArray* array);
 
 /* ============================================================================
- * MEMORY MANAGEMENT
+ * EMITTING  (serialise a value tree back to canonical VIBE text)
  * ============================================================================ */
 
-/**
- * vibe_value_free - Free a value and all nested data
- *
- * Recursively frees a VibeValue and all data it contains. This includes:
- *   - Strings (the actual string data)
- *   - Arrays (all elements in the array)
- *   - Objects (all key-value pairs)
- *   - Nested values (recursively)
- *
- * Parameters:
- *   value - The value to free (can be NULL, in which case this is a no-op)
- *
- * Example:
- *   VibeValue *config = vibe_parse_file(parser, "config.vibe");
- *   // ... use config ...
- *   vibe_value_free(config);  // Frees everything
- *
- * Warning: After calling this, all pointers to nested values are invalid.
- * Don't keep references to values inside the tree after freeing the root.
- *
- * Example of what NOT to do:
- *   VibeValue *host = vibe_get(root, "server.host");
- *   vibe_value_free(root);
- *   printf("%s\n", host->as_string);  // CRASH! host is now invalid
- */
-void vibe_value_free(VibeValue* value);
+/** Serialise a value to canonical VIBE text. The root should be an OBJECT (its
+ *  entries are emitted at the document level); any value type is accepted. The
+ *  result is heap-allocated — free it with vibe_free(). NULL on failure. */
+VIBE_API char* vibe_emit(const VibeValue* value);
+
+/** Emit to a file (atomic write is not guaranteed). Returns true on success. */
+VIBE_API bool vibe_emit_file(const VibeValue* value, const char* path);
 
 /* ============================================================================
- * ERROR HANDLING
+ * MISC
  * ============================================================================ */
 
-/**
- * vibe_get_last_error - Get the last error from a parser
- *
- * Retrieves error information from the most recent parse operation.
- * Check error.has_error to see if an error occurred.
- *
- * Parameters:
- *   parser - The parser to query
- *
- * Returns:
- *   A VibeError structure with error details. If no error occurred,
- *   has_error will be false.
- *
- * Example:
- *   VibeValue *root = vibe_parse_file(parser, "config.vibe");
- *   if (!root) {
- *       VibeError err = vibe_get_last_error(parser);
- *       if (err.has_error) {
- *           fprintf(stderr, "Parse error at line %d, column %d:\n",
- *                   err.line, err.column);
- *           fprintf(stderr, "  %s\n", err.message);
- *       } else {
- *           fprintf(stderr, "Could not read file\n");
- *       }
- *   }
- *
- * Note: The error message pointer is owned by the parser. Don't free it.
- * The error persists until the next parse operation or parser is freed.
- */
-VibeError vibe_get_last_error(VibeParser* parser);
+/** Human-readable name of a type, e.g. "object". Never NULL. */
+VIBE_API const char* vibe_type_name(VibeType type);
 
-/**
- * vibe_error_free - Free an error structure
- *
- * Frees the message string in a VibeError. You typically don't need to call
- * this yourself - the parser handles error cleanup internally.
- *
- * Parameters:
- *   error - The error to free
- *
- * Note: Only the message is freed. The VibeError structure itself is not
- * freed (it's typically stack-allocated).
- */
-void vibe_error_free(VibeError* error);
+/** Recursively free a value and everything it owns. NULL-safe. */
+VIBE_API void vibe_value_free(VibeValue* value);
 
-/* ============================================================================
- * DEBUGGING AND DISPLAY
- * ============================================================================ */
+/** Pretty-print a value to stdout (debug aid; not canonical VIBE). */
+VIBE_API void vibe_value_print(VibeValue* value, int indent);
 
-/**
- * vibe_value_print - Print a value tree to stdout
- *
- * Recursively prints a VibeValue and all its nested contents in a
- * human-readable format. Useful for debugging and understanding your
- * config structure.
- *
- * Parameters:
- *   value  - The value to print
- *   indent - Starting indentation level (use 0 for root)
- *
- * Example:
- *   VibeValue *config = vibe_parse_file(parser, "config.vibe");
- *   vibe_value_print(config, 0);
- *
- * Output format:
- *   INTEGER: 42
- *   STRING: "hello"
- *   OBJECT: {
- *     key1: STRING: "value1"
- *     key2: INTEGER: 123
- *   }
- *   ARRAY: [
- *     [0]: STRING: "first"
- *     [1]: STRING: "second"
- *   ]
- *
- * Note: This prints to stdout. If you need to print to a file or string,
- * you'll need to implement your own traversal function.
- */
-void vibe_value_print(VibeValue* value, int indent);
+#ifdef __cplusplus
+}  /* extern "C" */
+#endif
 
 #endif /* VIBE_H */

@@ -2,6 +2,7 @@
 *_env
 # Compiled Object files
 *.o
+*.lo
 *.obj
 *.elf
 
@@ -11,8 +12,10 @@
 
 # Compiled Dynamic libraries
 *.so
+*.so.*
 *.dylib
 *.dll
+libvibe.so*
 
 # Fortran module files
 *.mod
@@ -30,7 +33,14 @@
 *.app
 vibe_example
 vibe_test
+vibe_parser_tool
+/vibe
+/tests/conformance/run
 a.out
+
+# Generated files
+vibe.pc
+docs/.agentty_rag_cache.bin
 
 # Debug files
 *.dSYM/

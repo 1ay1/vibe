@@ -102,8 +102,32 @@ features {
 ```bash
 git clone https://github.com/1ay1/vibe.git
 cd vibe
-make
+make              # builds libvibe.a, libvibe.so, and the `vibe` CLI
 ```
+
+Install the library, CLI, and pkg-config file system-wide:
+
+```bash
+sudo make install PREFIX=/usr/local
+```
+
+This installs `libvibe.a` + `libvibe.so` (with SONAME), the `vibe.h` header,
+the `vibe` command-line tool, and `vibe.pc` for pkg-config.
+
+### 🖥️ Command-Line Tool
+
+The `vibe` CLI ships with the library:
+
+```bash
+vibe check config.vibe        # validate; prints a structured error on failure
+vibe fmt   config.vibe        # reformat to canonical VIBE (add -w to rewrite)
+vibe get   config.vibe server.port    # read a scalar at a dotted path
+vibe version
+```
+
+`vibe check` reports failures as `file:line:col: error [category]: message`,
+where `category` is one of the stable error codes (`unclosed-object`,
+`nested-container`, `invalid-number`, …).
 
 ### 🎮 Interactive Parsing Tool
 
@@ -384,17 +408,21 @@ make test            # Run all tests
 
 ### Integration
 
-To use VIBE in your C project:
-
-1. Copy `vibe.h` and `vibe.c` to your project
-2. Add `vibe.c` to your build system
-3. Include `vibe.h` in your source files
-4. Link and compile with C11 support
+**Option A — link the installed library (recommended).** After `make install`:
 
 ```bash
-gcc -std=c11 -c vibe.c
-gcc -std=c11 -o myapp myapp.c vibe.o
+cc -std=c11 -o myapp myapp.c $(pkg-config --cflags --libs vibe)
 ```
+
+**Option B — vendor the two files.** Copy `vibe.h` and `vibe.c` into your
+project and add `vibe.c` to your build:
+
+```bash
+cc -std=c11 -o myapp myapp.c vibe.c
+```
+
+Either way, `#include <vibe.h>` (installed) or `#include "vibe.h"` (vendored).
+The library has no dependencies beyond the C standard library.
 
 ## 📋 Examples
 
@@ -413,7 +441,7 @@ Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for gui
 - Additional language implementations (Python, Rust, Go, JavaScript) — run them
   against the [conformance suite](tests/conformance) to prove they agree
 - Editor plugins (VS Code, Vim, Emacs)
-- A `vibe fmt` canonical formatter and `vibe convert` importers
+- `vibe convert` importers (JSON/TOML/YAML → VIBE)
 - More conformance test cases
 
 ## 📜 License
@@ -425,10 +453,12 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - [x] Core parser implementation (C)
 - [x] Complete, conformance-grade specification
 - [x] Language-neutral conformance test suite
+- [x] Packaged C library (`libvibe`: static + shared, pkg-config) with a `vibe` CLI
+- [x] `vibe fmt` canonical formatter
 - [ ] `\uXXXX` escapes (v1.1) + candidate multi-line strings
 - [ ] Python / Rust / Go / JS implementations (each conformance-verified)
 - [ ] VS Code + Vim syntax highlighting
-- [ ] `vibe fmt` canonical formatter and `vibe convert` importers
+- [ ] `vibe convert` importers
 
 *(Notably **not** on the roadmap, by design: variable substitution, includes,
 conditionals, templates, anchors. See [What VIBE Refuses](SPECIFICATION.md#future-considerations).)*

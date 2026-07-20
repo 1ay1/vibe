@@ -35,7 +35,10 @@ jobs:
       run: make clean && make
 
     - name: Run tests
-      run: make test
+      run: |
+        make test
+        make test-suite
+        make conformance
 
     - name: Test examples
       run: |
@@ -43,6 +46,12 @@ jobs:
         ./vibe_example examples/config.vibe
         ./vibe_example examples/web_server.vibe
         ./vibe_example examples/database.vibe
+
+    - name: Smoke-test the CLI
+      run: |
+        ./vibe version
+        ./vibe check examples/config.vibe
+        ./vibe fmt examples/simple.vibe > /dev/null
 
   memory-check:
     name: Memory Check (Valgrind)
@@ -64,6 +73,27 @@ jobs:
           ./vibe_example examples/simple.vibe
         valgrind --leak-check=full --error-exitcode=1 --track-origins=yes \
           ./vibe_example examples/config.vibe
+        make test-suite CC=gcc
+        valgrind --leak-check=full --error-exitcode=1 --track-origins=yes \
+          ./vibe_test
+        make conformance CC=gcc >/dev/null
+        valgrind --leak-check=full --error-exitcode=1 --track-origins=yes \
+          ./tests/conformance/run tests/conformance
+
+  sanitizers:
+    name: Sanitizers (ASan + UBSan)
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Build and test under ASan/UBSan
+      run: |
+        make clean
+        CFLAGS="-Wall -Wextra -std=c11 -g -fsanitize=address,undefined -fno-sanitize-recover=all" \
+        LDFLAGS="-fsanitize=address,undefined" \
+        make test test-suite conformance
 
   static-analysis:
     name: Static Analysis

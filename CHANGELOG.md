@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### libvibe — the reference implementation is now a real C library
+- 📦 **Static + shared library.** `make` builds `libvibe.a` and a versioned
+  shared library (`libvibe.so.1.1.0`, SONAME `libvibe.so.1`; `.dylib` on macOS);
+  `make install` lays down the header, both libraries, a `vibe.pc` pkg-config
+  file, and the CLI. Consume it with `cc app.c $(pkg-config --cflags --libs vibe)`.
+- 🛠️ **`vibe` command-line tool.** `vibe check` (validate + structured error),
+  `vibe fmt [-w]` (canonical reformat), `vibe get <path>` (read a scalar),
+  `vibe version`.
+- ✍️ **Emitter / serialiser.** `vibe_emit()` / `vibe_emit_file()` render a value
+  tree back to canonical VIBE text that re-parses to an equal tree; `fmt∘fmt`
+  is idempotent.
+- 🧵 **Length-aware & stateless parsing.** `vibe_parse_buffer(p, data, len)`
+  (NUL-safe) and one-shot `vibe_parse(data, len, &err)` — no parser object.
+- 🎛️ **Configurable, enforced resource limits** (`VibeLimits`,
+  `vibe_parser_set_limits()`), defaulting to the spec's required minimums.
+- 🧯 **Stable error codes on the API**: `VibeError.code` (`VibeErrorCode`) plus
+  `vibe_error_code_string()`, matching the spec's vocabulary 1:1.
+- 🔌 Pluggable allocator (`vibe_set_allocators()`), version queries
+  (`vibe_version()`, `VIBE_VERSION_*`), deep copy (`vibe_value_clone()`),
+  `*_or` defaulted getters, `vibe_type_name()`, and container-size helpers.
+- 🏷️ ABI hygiene: `extern "C"`, a `VIBE_API` visibility macro, and
+  `-fvisibility=hidden` so the shared object exports **only** the public
+  `vibe_*` symbols.
+- 🧪 Committed conformance runner (`tests/conformance/run.c`, `make conformance`)
+  that re-encodes each parsed tree into the interchange encoding and diffs it
+  against the fixture, and matches invalid fixtures by error category.
+- 🐛 Implementation hardening: `ctype` calls pass `unsigned char` (no UB on
+  bytes ≥ 0x80); quoted strings use a growable buffer instead of a fixed 4 KiB
+  stack buffer; allocation-failure paths no longer leak or crash; a leading
+  UTF-8 BOM reports `encoding-error` specifically. Clean under
+  `-Wall -Wextra -Werror -pedantic` and ASan/UBSan.
+
 ### Added
 - 🔐 **Quoted keys.** Keys that are not valid identifiers (URL paths, header
   names, IP/CIDR, non-ASCII) can now be written as quoted strings, e.g.

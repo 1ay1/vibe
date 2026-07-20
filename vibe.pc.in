@@ -1,0 +1,11 @@
+prefix=@PREFIX@
+exec_prefix=${prefix}
+libdir=@LIBDIR@
+includedir=@INCLUDEDIR@
+
+Name: libvibe
+Description: Reference parser and emitter for the VIBE config format
+URL: https://github.com/1ay1/vibe
+Version: @VERSION@
+Cflags: -I${includedir}
+Libs: -L${libdir} -lvibe
