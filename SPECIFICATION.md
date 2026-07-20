@@ -41,6 +41,64 @@ argument.
 
 ---
 
+## The VIBE Guarantees
+
+VIBE is defined by what it **promises** and what it **refuses** — not by a feature
+list. Every guarantee below is enforced by the grammar and verified by the
+[conformance suite](#conformance-test-suite).
+
+1. **One Parse.** The same bytes produce the same value tree in *every*
+   conforming parser, forever. VIBE has no ambiguous documents — none. If you can
+   show two conforming parsers that disagree on any input, that is a spec bug and
+   we will fix it.
+2. **Named Entities.** Every structured value has a name. There are no anonymous
+   records, no positional identity, no `[0]`-addressed objects. Reordering never
+   silently rebinds a reference.
+3. **No Surprises.** A value is exactly what it looks like. There is no implicit
+   coercion that turns your data into something else behind your back (see
+   *No Footguns* below).
+4. **Frozen Grammar.** The syntax and semantics are locked for all of VIBE 1.x. A
+   document you write today parses identically under every future 1.x parser
+   (see [Versioning and Stability](#versioning-and-stability)).
+5. **Conformance-Tested.** Compliance is not an honor system. A shared,
+   language-neutral test suite decides whether a parser is conforming.
+
+### No Footguns
+
+VIBE deliberately does not have the traps that make hand-written config
+dangerous in other formats:
+
+- **No “Norway problem.”** `country no` is the string `"no"`, never the boolean
+  `false`. Only the exact tokens `true` and `false` are booleans.
+- **No accidental octals or number magic.** `007` is the integer `7`; `2.1.0` is
+  the string `"2.1.0"`; `10:30` is the string `"10:30"`, not 630 seconds.
+- **No significant whitespace.** Indentation is decoration. There are no
+  tab-versus-space wars and no way to break a document by re-indenting it.
+- **No trailing-comma errors.** VIBE has no value separators to get wrong —
+  newlines and spaces separate values.
+- **No silent truncation.** An integer that overflows the parser's range is
+  *rejected*, not quietly clamped.
+
+### What VIBE Refuses (and Why)
+
+A format is defined by its refusals. VIBE will **never** add these, because each
+one re-introduces the ambiguity or instability the language exists to prevent:
+
+| Refused                         | Why |
+|---------------------------------|-----|
+| Objects/arrays inside arrays    | Anonymous records have no stable identity (the First Law). |
+| Anchors, references, aliases    | Non-local action; a value's meaning stops being readable in place (YAML's `&`/`*`). |
+| Implicit type coercion          | The Norway problem and its whole family. A token means one thing. |
+| Templates, conditionals, `if`   | Config is data, not a program. Logic belongs in your code, not your config file. |
+| Significant indentation         | Whitespace-as-structure is the single largest source of config bugs. |
+| Multiple ways to write the same thing | One canonical form keeps diffs, merges, and tooling sane. |
+
+> **VIBE is for configuration that humans write by hand — not data that machines
+> exchange.** For APIs and wire formats, use JSON. We mean it. VIBE wins by being
+> the best possible *config* language, not by trying to be everything.
+
+---
+
 ## Conformance and Notation
 
 The key words **MUST**, **MUST NOT**, **REQUIRED**, **SHALL**, **SHALL NOT**,
@@ -65,33 +123,35 @@ are informative and impose no requirements.
 
 ## Table of Contents
 
-1. [Overview](#overview)
-2. [Design Goals](#design-goals)
-3. [Grammar](#grammar)
-4. [Lexical Analysis](#lexical-analysis)
-5. [Data Types](#data-types)
-6. [String Literals](#string-literals)
-7. [Comments](#comments)
-8. [Arrays](#arrays)
-9. [Objects](#objects)
-10. [Whitespace and Formatting](#whitespace-and-formatting)
-11. [Reserved Words](#reserved-words)
-12. [Path Notation](#path-notation)
-13. [Duplicate Keys](#duplicate-keys)
-14. [Complete Examples](#complete-examples)
-15. [Parsing Algorithm](#parsing-algorithm)
-16. [Error Handling](#error-handling)
-17. [File Format](#file-format)
-18. [Conformance Test Suite](#conformance-test-suite)
-19. [Implementation Guidelines](#implementation-guidelines)
-20. [Security Considerations](#security-considerations)
-21. [Performance Requirements](#performance-requirements)
-22. [Validation and Schema](#validation-and-schema)
-23. [Comparison to Other Formats](#comparison-to-other-formats)
-24. [Migration Guide](#migration-guide)
-25. [Versioning and Stability](#versioning-and-stability)
-26. [Future Considerations](#future-considerations)
-27. [References](#references)
+1. [The First Law of VIBE](#the-first-law-of-vibe)
+2. [The VIBE Guarantees](#the-vibe-guarantees)
+3. [Overview](#overview)
+4. [Design Goals](#design-goals)
+5. [Grammar](#grammar)
+6. [Lexical Analysis](#lexical-analysis)
+7. [Data Types](#data-types)
+8. [String Literals](#string-literals)
+9. [Comments](#comments)
+10. [Arrays](#arrays)
+11. [Objects](#objects)
+12. [Whitespace and Formatting](#whitespace-and-formatting)
+13. [Reserved Words](#reserved-words)
+14. [Path Notation](#path-notation)
+15. [Duplicate Keys](#duplicate-keys)
+16. [Complete Examples](#complete-examples)
+17. [Parsing Algorithm](#parsing-algorithm)
+18. [Error Handling](#error-handling)
+19. [File Format](#file-format)
+20. [Conformance Test Suite](#conformance-test-suite)
+21. [Implementation Guidelines](#implementation-guidelines)
+22. [Security Considerations](#security-considerations)
+23. [Performance Requirements](#performance-requirements)
+24. [Validation and Schema](#validation-and-schema)
+25. [Comparison to Other Formats](#comparison-to-other-formats)
+26. [Migration Guide](#migration-guide)
+27. [Versioning and Stability](#versioning-and-stability)
+28. [Future Considerations](#future-considerations)
+29. [References](#references)
 
 ## Overview
 
@@ -118,8 +178,12 @@ VIBE uses exactly 6 core token types (identifiers, strings, numbers, booleans, b
 ### 3. Unambiguous Grammar
 Each data structure has exactly one canonical representation in VIBE. This eliminates formatting debates, ensures consistent machine generation, and enables reliable diffing and version control. The deterministic grammar means there are no edge cases or surprising interpretations.
 
-### 4. Fast Parsing
-The grammar enables single-pass, O(n) parsing using a simple state machine. No backtracking, unbounded lookahead, or complex grammar rules are required. This design choice ensures predictable performance characteristics and low memory overhead, making VIBE suitable for resource-constrained environments.
+### 4. Predictable Parsing
+The grammar admits single-pass, O(n) parsing with a simple state machine — no
+backtracking, no unbounded lookahead, no ambiguous productions. The point is not
+raw speed (config files are tiny); it is that parsing is **predictable**: the
+same input always produces the same tree with no surprising interpretations, and
+any competent parser is trivially fast as a side effect.
 
 ### 5. Type Safety
 Clear, deterministic type inference rules ensure that values are consistently interpreted across all implementations. Numbers, booleans, and strings are unambiguously distinguished through syntax, eliminating the need for explicit type annotations while maintaining type safety.
@@ -1537,11 +1601,14 @@ badge that links to the suite run is RECOMMENDED.
    (recursive free / RAII / GC) with no leaks on either success or error paths.
 4. **String Interning**: Consider interning common string values.
 
-### Performance Targets
+### Performance Notes
 
-- **Parse Speed**: > 100 MB/s on modern hardware (3+ GHz CPU)
-- **Memory Usage**: < 2x input file size
-- **Latency**: < 1ms for files under 1KB
+Parsing speed is **not** a design goal of VIBE and is not a reason to choose it —
+no configuration file is large enough for parse time to matter. The single-pass,
+backtrack-free grammar happens to parse in linear time, but VIBE competes on
+*predictability*, not throughput. Implementations SHOULD keep memory proportional
+to input size (roughly ≤ 2×) and MUST NOT sacrifice correctness or clear error
+reporting for speed.
 - **Scalability**: Linear time complexity O(n) with input size
 
 ### API Design Principles
@@ -1681,114 +1748,73 @@ key value
 
 ## Performance Requirements
 
-### Benchmarking Standards
+VIBE sets **no throughput requirement.** Config files are small and parsed once at
+startup; a format that traded away clarity or correctness for megabytes-per-second
+would be optimizing the wrong thing. The only hard requirements are:
 
-#### Test Files
-1. **Small**: 1KB configuration file
-2. **Medium**: 100KB structured data
-3. **Large**: 10MB complex configuration
-4. **Deep**: Maximum nesting depth file
-5. **Wide**: Many top-level keys
+1. **Linear time.** Parsing MUST be O(n) in input size — single-pass, no
+   backtracking. This falls out of the grammar automatically.
+2. **Bounded memory.** Peak memory SHOULD stay within ~2× the input size.
+3. **Correctness first.** An implementation MUST NOT skip validation, error
+   reporting, or the [conformance suite](#conformance-test-suite) in the name of
+   speed.
 
-#### Performance Metrics
-- **Parse Time**: Wall clock time to parse file
-- **Memory Usage**: Peak memory consumption during parsing
-- **Memory Efficiency**: Ratio of parsed structure size to file size
-- **Throughput**: MB/s processing rate
-
-#### Target Performance (on 3GHz CPU, 8GB RAM)
-
-| File Size | Parse Time | Memory Usage | Throughput |
-|-----------|------------|--------------|------------|
-| 1KB | < 0.1ms | < 10KB | > 10 MB/s |
-| 100KB | < 10ms | < 1MB | > 100 MB/s |
-| 10MB | < 1s | < 50MB | > 100 MB/s |
-
-### Optimization Strategies
-
-1. **Single-Pass Parsing**: No backtracking or multiple passes
-2. **String Interning**: Reuse common strings
-3. **Memory Pooling**: Reduce allocation overhead
-4. **SIMD Instructions**: Use vectorized operations for scanning
-5. **Branch Prediction**: Optimize hot parsing paths
+Optimization (string interning, memory pooling, vectorized scanning) is entirely
+OPTIONAL and is a quality-of-implementation concern, not a property of the format.
 
 ## Validation and Schema
 
-While VIBE itself has no built-in schema validation, implementations may provide schema languages for validation.
+VIBE has **no** built-in schema language, and [never will](#future-considerations):
+validation is a separate layer that consumes the parsed value tree, not part of
+the grammar. This keeps the format frozen and lets validation evolve
+independently. Tooling built *on top of* VIBE MAY offer schemas; such a schema
+dialect is not defined by, and imposes no requirement on, this specification.
 
-### Proposed Schema Syntax
+Typical responsibilities of an external validation layer:
 
-```vibe
-# Example schema definition
-schema ApplicationConfig {
-  app {
-    name: string
-    version: string
-    debug: boolean?  # Optional field
-  }
-  
-  server {
-    host: string
-    port: integer(1..65535)  # Range constraint
-    
-    ssl?: {  # Optional object
-      enabled: boolean
-      cert: string
-    }
-  }
-  
-  features: [string]  # Array of strings
-}
-```
-
-### Validation Rules
-
-1. **Type Checking**: Ensure values match expected types
-2. **Required Fields**: Validate presence of mandatory keys
-3. **Range Constraints**: Check numeric values are within bounds
-4. **Format Validation**: Validate strings match patterns (e.g., URLs, emails)
-5. **Cross-Field Validation**: Validate relationships between fields
+1. **Type Checking**: Ensure values match expected types.
+2. **Required Fields**: Validate presence of mandatory keys.
+3. **Range Constraints**: Check numeric values are within bounds.
+4. **Format Validation**: Validate strings match patterns (URLs, emails, …).
+5. **Cross-Field Validation**: Validate relationships between fields.
 
 ## Comparison to Other Formats
 
-### Feature Comparison
+VIBE does not try to win a feature checklist — it makes a different **bet**. The
+other formats optimize for expressiveness or interchange; VIBE optimizes for a
+human editing a config file at 2am without getting surprised.
 
-| Feature | VIBE | JSON | YAML | TOML | XML |
-|---------|------|------|------|------|-----|
-| Human Readable | ✓ | ✗ | ✓ | ✓ | ✗ |
-| Minimal Syntax | ✓ | ✗ | ✓ | ✓ | ✗ |
-| Visual Hierarchy | ✓ | ✓ | ✗ | ✗ | ✓ |
-| Fast Parsing | ✓ | ✓ | ✗ | ✓ | ✗ |
-| No Indentation Rules | ✓ | ✓ | ✗ | ✓ | ✓ |
-| Type Inference | ✓ | ✗ | ✓ | ✓ | ✗ |
-| Comments | ✓ | ✗ | ✓ | ✓ | ✓ |
-| Unambiguous | ✓ | ✓ | ✗ | ✓ | ✓ |
-| Single Pass Parse | ✓ | ✓ | ✗ | ✓ | ✗ |
+### The one-line summary of each
+
+- **JSON** — great for machines, hostile to humans (no comments, quotes and commas
+  everywhere). VIBE concedes data-interchange to JSON entirely.
+- **YAML** — readable until it bites: significant whitespace, implicit typing (the
+  Norway problem), anchors and aliases that act at a distance. VIBE keeps YAML's
+  readability and removes every one of those traps.
+- **TOML** — excellent and closest in spirit; but arrays-of-tables (`[[x]]`) bring
+  back anonymous records, and deeply nested tables get awkward. VIBE forbids the
+  anonymous-record pattern outright.
+- **XML** — verbose; not a config language anyone reaches for by choice.
+
+### The bet, stated plainly
+
+> Every other format lets you write an anonymous list of records and lets a bare
+> word silently become a boolean. VIBE forbids both. You give up two “features”
+> and get, in return, a format with **no ambiguous documents and no positional
+> identity.** If that trade sounds good, VIBE is for you. If you need references,
+> multi-document streams, or templating, it is honestly *not* — use YAML or a
+> config-as-code tool, and we'll cheer you on.
 
 ### When to Use VIBE
 
-**Choose VIBE when**:
-- Configuration files need to be human-readable and editable
-- Fast parsing is important
-- Visual structure clarity is valued
-- Simple syntax is preferred
-- Comments are needed
+**Choose VIBE when** you are hand-writing configuration and you want it to be
+obvious, un-ambiguous, and diff-friendly — with comments and without whitespace
+traps.
 
-**Choose JSON when**:
-- Web APIs and data interchange
-- Strict typing is not needed
-- Minimal parser complexity is required
-- Maximum compatibility is needed
-
-**Choose YAML when**:
-- Complex data structures with references
-- Multi-document files are needed
-- Existing YAML ecosystem is required
-
-**Choose TOML when**:
-- Simple configuration files
-- Strong typing is important
-- INI-like format is preferred
+**Do not choose VIBE when** you need data interchange (use **JSON**), references /
+multi-document streams (use **YAML**), or logic and templating in the config
+itself (use a real programming language or a tool like Jsonnet/CUE). Picking the
+right tool is the good vibe.
 
 ## Migration Guide
 
@@ -1880,18 +1906,18 @@ features [auth api]
 
 ### Migration Tools
 
-Implementations should provide conversion utilities:
+Conversion and validation are **tooling that lives outside the language.** A
+conforming ecosystem MAY provide utilities such as:
 
 ```bash
-# Command-line converters
-vibe-convert --from json --to vibe config.json config.vibe
-vibe-convert --from yaml --to vibe config.yaml config.vibe
-vibe-convert --from toml --to vibe config.toml config.vibe
-
-# Validation
-vibe-validate config.vibe
-vibe-format config.vibe  # Pretty-print formatter
+# Illustrative CLI (not part of the spec, not shipped by default)
+vibe convert --from json config.json > config.vibe
+vibe validate config.vibe
+vibe fmt config.vibe          # canonical pretty-printer
 ```
+
+These are conveniences, not requirements, and are intentionally kept out of the
+format itself — see [Explicitly Rejected](#future-considerations).
 
 ## Versioning and Stability
 
@@ -1920,83 +1946,48 @@ accompanying conformance tests. Do not rely on them.
 ## Future Considerations *(Non-normative)*
 
 This section is **informative**. Nothing here is part of VIBE 1.0, imposes any
-requirement, or may be assumed present by a conforming document or parser. Ideas
-graduate from this list only when they ship in a numbered release with
-conformance tests.
+requirement, or may be assumed present by a conforming document or parser.
 
-The future is looking bright for VIBE! We're constantly vibing with new ideas while keeping the core philosophy intact.
+VIBE's roadmap is deliberately tiny. A configuration format earns trust by the
+features it **refuses**, and most “obvious” additions are exactly the ones that
+turned other formats into footgun museums. So this section is split in two: a
+short list of additions that *might* land (because they don't break any
+[Guarantee](#the-vibe-guarantees)), and a firm list of things we will **not** add.
 
-### Version 2.0 Potential Features
+### Candidate Additions (compatible with the Guarantees)
 
-#### Multi-line Strings
-```vibe
-description """
-This is a multi-line string
-that spans several lines
-and preserves formatting.
-"""
-```
+These are backward-compatible and preserve One Parse and No Surprises. They may
+appear in a future 1.x, each gated behind a conformance-test addition:
 
-#### Include Directives
-```vibe
-include "database.vibe"
-include "logging.vibe"
-```
+- **`\uXXXX` string escapes** — already reserved; targeted for 1.1.
+- **Multi-line strings** — a triple-quoted form with fully explicit, whitespace-
+  insensitive semantics (no indentation-stripping magic). Only if the exact byte
+  content is unambiguous.
 
-#### Variable Substitution
-```vibe
-env development
-database_host ${env}.db.example.com
-```
+That's the entire list. If a proposed feature is not here, assume the answer is
+no.
 
-#### Schema Validation
-```vibe
-schema ConfigSchema {
-  server {
-    host: string
-    port: integer(1..65535)
-  }
-}
-```
+### Explicitly Rejected (and why)
 
-#### Binary Format
-A binary representation for faster parsing and smaller size:
-- Magic number: `VIBE` (0x56494245)
-- Version byte
-- Length-prefixed strings
-- Type markers for values
+These are **non-goals by design.** They are not “not yet” — they are *never*,
+because each one re-introduces the ambiguity, non-locality, or instability that
+VIBE exists to eliminate. Requests to add them will be closed with a link here.
 
-### Experimental Features
+| Rejected feature | Why it will never be added |
+|------------------|-----------------------------|
+| **Variable substitution** (`${env}`) | Non-local: a value's meaning now depends on another line. Breaks *read-it-in-place*. Do interpolation in your program. |
+| **Include directives** (`include "x.vibe"`) | A document would no longer mean one thing on its own; parsing becomes filesystem- and order-dependent. Compose configs in code. |
+| **Conditionals / `if` blocks** | Config is data, not a program. The moment config has control flow, it needs a debugger. Logic lives in your application. |
+| **Templates / inheritance** | Same as conditionals: turns a data file into a mini-language with its own evaluation order and surprises. |
+| **Anchors / references / aliases** | YAML's `&`/`*` are the textbook example of action-at-a-distance. A value must be readable where it sits. |
+| **Built-in schema validation** | Validation is a *separate* layer that consumes the parsed tree; baking it into the grammar couples two concerns and freezes a schema dialect forever. Ship schemas as tooling, not syntax. |
+| **Date/duration/size literals** (`30s`, `10MB`) | Magic types are the Norway problem wearing a hat: is `10MB` a string or a number-with-unit? Keep it a string and let the application interpret it. |
+| **A binary format** | VIBE is for humans hand-editing text. A binary form solves a speed problem VIBE explicitly does not have. |
 
-#### Extended Types
-- Date/time literals: `2025-01-14T10:30:00Z`
-- Duration literals: `30s`, `5m`, `2h`
-- Size literals: `10MB`, `1GB`
-
-#### Conditional Blocks
-```vibe
-if environment == "production" {
-  debug false
-  log_level error
-}
-```
-
-#### Templates
-```vibe
-template DatabaseConfig {
-  host ${db_host}
-  port ${db_port}
-  name ${db_name}
-}
-
-primary_db: DatabaseConfig {
-  db_host prod-db.example.com
-  db_port 5432
-  db_name app_prod
-}
-```
-
-Templates would let you copy that vibe across multiple configurations!
+> If you find yourself wanting one of these, you have most likely outgrown a
+> *configuration format* and want a configuration *language* (CUE, Jsonnet,
+> Dhall) or plain code. That is a good problem to have — reach for the right
+> tool. VIBE stays small on purpose.
 
 ## References
 

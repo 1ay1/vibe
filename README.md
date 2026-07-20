@@ -3,22 +3,62 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![C11](https://img.shields.io/badge/C-11-blue.svg)](https://en.wikipedia.org/wiki/C11_(C_standard_revision))
 [![Version](https://img.shields.io/badge/version-1.0-green.svg)](https://github.com/1ay1/vibe)
+[![Conformance](https://img.shields.io/badge/conformance-100%25-brightgreen.svg)](tests/conformance)
 
-**VIBE** (Values In Bracket Expression) is a hierarchical configuration file format designed for human readability and fast machine parsing. It combines the visual clarity of structured formats with the simplicity of minimal syntax.
+**VIBE** (Values In Bracket Expression) is a configuration language with one
+radical rule: **every structured thing has a name.** No anonymous records, no
+implicit type magic, no significant whitespace. The structure you see is the
+structure you get.
 
-> Like its namesake, VIBE aims to create good vibes in your development workflow by eliminating the frustration of complex configuration formats. No more YAML indentation nightmares or JSON comma catastrophes - just smooth, readable config that flows naturally.
+```vibe
+server {
+  host localhost
+  port 8080
+}
+features [auth api cache]      # arrays hold scalars — that's the whole trick
+```
 
-## ✨ Features
+## The First Law of VIBE
 
-- 🎯 **Simple Syntax** - Only 5 token types, minimal punctuation
-- 👀 **Visual Hierarchy** - Structure is immediately apparent
-- ⚡ **Fast Parsing** - Single-pass O(n) with no backtracking
-- 🔒 **Unambiguous** - One canonical way to represent data
-- 💬 **Comments** - Built-in support with `#`
-- 🌍 **Unicode Support** - UTF-8 strings with proper escaping
-- 🎨 **Flexible Whitespace** - No significant indentation rules
-- 🔧 **Type Inference** - Automatic detection of integers, floats, booleans, strings
-- 🛡️ **Stability by Design** - Arrays of objects are forbidden, forcing stable named entities (see [Philosophy](docs/Stability_Paradox.md))
+> **An array MUST NOT contain an object or another array.**
+
+Every other format lets you write an anonymous list of records
+(`replicas: [{...}, {...}]`) — and every such list is a latent bug: the entries
+have no stable identity, they're addressed by a fragile index, and reordering
+silently rebinds every reference. VIBE forbids it. If a thing is worth
+structuring, it's worth naming. This isn't a missing feature — it's
+[the entire point](docs/Stability_Paradox.md).
+
+## What VIBE Promises
+
+- **One Parse** — the same bytes produce the same value tree in every conforming
+  parser, forever. There are *no* ambiguous documents. Prove otherwise and it's a
+  spec bug we'll fix.
+- **Named Entities** — no anonymous records, no `[0]`-addressed objects.
+- **No Surprises** — a value is exactly what it looks like.
+- **Frozen Grammar** — locked for all of 1.x; your config parses identically
+  forever.
+- **Conformance-Tested** — a [language-neutral suite](tests/conformance) decides
+  what "conforming" means. Not an honor system.
+
+## No Footguns
+
+- **No "Norway problem."** `country no` is the string `"no"`, never `false`.
+- **No number magic.** `2.1.0` is a string; `10:30` is a string; `007` is `7`.
+- **No significant whitespace.** Indentation is decoration — re-indent freely.
+- **No trailing-comma errors.** There are no separators to get wrong.
+- **No silent truncation.** An out-of-range integer is *rejected*, not clamped.
+
+## What VIBE Refuses (on purpose)
+
+Arrays-of-objects · anchors/references · variable substitution · includes ·
+conditionals · templates · implicit type coercion. Each one re-introduces the
+ambiguity or non-locality VIBE exists to kill. If you need those, you've outgrown
+a config *format* and want a config *language* (CUE, Jsonnet) or plain code — and
+we'll cheer you on.
+
+> **VIBE is for configuration humans write by hand — not data machines exchange.**
+> For APIs and wire formats, use JSON. We mean it.
 
 ## 📖 Quick Example
 
@@ -310,23 +350,21 @@ For the complete format specification, see [SPECIFICATION.md](SPECIFICATION.md).
 
 ## 🎯 Why VIBE?
 
-| Feature | VIBE | JSON | YAML | TOML |
-|---------|------|------|------|------|
-| Human Readable | ✅ | ❌ | ✅ | ✅ |
-| Minimal Syntax | ✅ | ❌ | ✅ | ✅ |
-| Visual Hierarchy | ✅ | ✅ | ❌ | ❌ |
-| Fast Parsing | ✅ | ✅ | ❌ | ✅ |
-| No Indentation Rules | ✅ | ✅ | ❌ | ✅ |
-| Comments | ✅ | ❌ | ✅ | ✅ |
-| Single Pass Parse | ✅ | ✅ | ❌ | ✅ |
-| No Reserved Words | ✅ | ❌ | ❌ | ❌ |
+VIBE doesn't win a feature checklist — it makes a **bet**: give up two "features"
+(anonymous records and implicit type coercion) and get, in return, a format with
+**no ambiguous documents and no positional identity.**
 
-**Choose VIBE when:**
-- Configuration files need to be human-readable and editable
-- Fast parsing is important
-- Visual structure clarity is valued
-- Simple syntax is preferred
-- You want to avoid indentation sensitivity (YAML) or verbosity (JSON/XML)
+- **vs JSON** — JSON is for machines; VIBE is for humans (comments, no comma/quote
+  noise). VIBE concedes data-interchange to JSON entirely.
+- **vs YAML** — VIBE keeps the readability and drops every trap: significant
+  whitespace, the Norway problem, anchors/aliases.
+- **vs TOML** — closest in spirit, but TOML's arrays-of-tables bring back anonymous
+  records; VIBE forbids them (the First Law).
+
+**Choose VIBE when** you hand-write configuration and want it obvious,
+unambiguous, and diff-friendly. **Don't** choose it for data interchange (JSON),
+references/multi-doc streams (YAML), or logic/templating (a real language or
+CUE/Jsonnet). Picking the right tool is the good vibe.
 
 ## 🔨 Building & Testing
 
@@ -372,12 +410,11 @@ Check out the `examples/` directory for more usage examples:
 Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ### Areas for Contribution
-- Additional language implementations (Python, Rust, Go, JavaScript)
-- Schema validation tools
+- Additional language implementations (Python, Rust, Go, JavaScript) — run them
+  against the [conformance suite](tests/conformance) to prove they agree
 - Editor plugins (VS Code, Vim, Emacs)
-- Conversion tools (JSON↔VIBE, YAML↔VIBE, TOML↔VIBE)
-- Performance optimizations
-- More comprehensive test suite
+- A `vibe fmt` canonical formatter and `vibe convert` importers
+- More conformance test cases
 
 ## 📜 License
 
@@ -386,15 +423,15 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## 🗺️ Roadmap
 
 - [x] Core parser implementation (C)
-- [x] Complete specification
-- [ ] Python bindings
-- [ ] Rust implementation
-- [ ] JavaScript/Node.js implementation
-- [ ] Go implementation
-- [ ] VS Code syntax highlighting extension
-- [ ] Schema validation support
-- [ ] Format converter tools
-- [ ] Benchmark suite
+- [x] Complete, conformance-grade specification
+- [x] Language-neutral conformance test suite
+- [ ] `\uXXXX` escapes (v1.1) + candidate multi-line strings
+- [ ] Python / Rust / Go / JS implementations (each conformance-verified)
+- [ ] VS Code + Vim syntax highlighting
+- [ ] `vibe fmt` canonical formatter and `vibe convert` importers
+
+*(Notably **not** on the roadmap, by design: variable substitution, includes,
+conditionals, templates, anchors. See [What VIBE Refuses](SPECIFICATION.md#future-considerations).)*
 
 ## 📞 Support
 
@@ -404,11 +441,12 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 🎉 Acknowledgments
 
-Inspired by the need for a configuration format that's:
-- Simpler than YAML
-- More readable than JSON
-- Faster to parse than both
-- More flexible than TOML
+Inspired by the need for a configuration format that is:
+- Simpler and safer to hand-edit than YAML (no whitespace traps, no Norway problem)
+- More readable than JSON (comments, less punctuation)
+- More opinionated than TOML (every structured value has a name)
+
+VIBE's north star: **a config format with no ambiguous documents.**
 
 ---
 
