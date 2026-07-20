@@ -678,9 +678,19 @@ VibeValue* vibe_parse_string(VibeParser* parser, const char* input) {
         StateFrame* frame = &stack.frames[stack.depth];
 
         if (frame->state == STATE_ROOT || frame->state == STATE_OBJECT) {
-            if (token.type == TOKEN_IDENTIFIER) {
+            /* A key may be a bare identifier or a quoted string (for keys that
+             * are not valid identifiers, e.g. "/api/login" or "content-type"). */
+            if (token.type == TOKEN_IDENTIFIER || token.type == TOKEN_STRING) {
                 current_key = strdup(token.value);
                 token_free(&token);
+
+                if (current_key[0] == '\0') {
+                    /* An empty key (from "") is almost always a bug; reject it. */
+                    set_error(parser, "Empty key is not allowed");
+                    free(current_key);
+                    vibe_value_free(root);
+                    return NULL;
+                }
 
                 /* Peek next token */
                 Token next = next_token(parser);

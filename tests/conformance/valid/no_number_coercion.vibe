@@ -1,0 +1,5 @@
+# NaN, Infinity, and scientific notation are strings, never numbers.
+not_a_number NaN
+infinity Infinity
+scientific 1.5e10
+version 2.1.0

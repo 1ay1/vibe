@@ -129,29 +129,30 @@ are informative and impose no requirements.
 4. [Design Goals](#design-goals)
 5. [Grammar](#grammar)
 6. [Lexical Analysis](#lexical-analysis)
-7. [Data Types](#data-types)
-8. [String Literals](#string-literals)
-9. [Comments](#comments)
-10. [Arrays](#arrays)
-11. [Objects](#objects)
-12. [Whitespace and Formatting](#whitespace-and-formatting)
-13. [Reserved Words](#reserved-words)
-14. [Path Notation](#path-notation)
-15. [Duplicate Keys](#duplicate-keys)
-16. [Complete Examples](#complete-examples)
-17. [Parsing Algorithm](#parsing-algorithm)
-18. [Error Handling](#error-handling)
-19. [File Format](#file-format)
-20. [Conformance Test Suite](#conformance-test-suite)
-21. [Implementation Guidelines](#implementation-guidelines)
-22. [Security Considerations](#security-considerations)
-23. [Performance Requirements](#performance-requirements)
-24. [Validation and Schema](#validation-and-schema)
-25. [Comparison to Other Formats](#comparison-to-other-formats)
-26. [Migration Guide](#migration-guide)
-27. [Versioning and Stability](#versioning-and-stability)
-28. [Future Considerations](#future-considerations)
-29. [References](#references)
+7. [Character Encoding and Document Model](#character-encoding-and-document-model)
+8. [Data Types](#data-types)
+9. [String Literals](#string-literals)
+10. [Comments](#comments)
+11. [Arrays](#arrays)
+12. [Objects](#objects)
+13. [Whitespace and Formatting](#whitespace-and-formatting)
+14. [Reserved Words](#reserved-words)
+15. [Path Notation](#path-notation)
+16. [Duplicate Keys](#duplicate-keys)
+17. [Complete Examples](#complete-examples)
+18. [Parsing Algorithm](#parsing-algorithm)
+19. [Error Handling](#error-handling)
+20. [File Format](#file-format)
+21. [Conformance Test Suite](#conformance-test-suite)
+22. [Implementation Guidelines](#implementation-guidelines)
+23. [Security Considerations](#security-considerations)
+24. [Performance Requirements](#performance-requirements)
+25. [Validation and Schema](#validation-and-schema)
+26. [Comparison to Other Formats](#comparison-to-other-formats)
+27. [Migration Guide](#migration-guide)
+28. [Versioning and Stability](#versioning-and-stability)
+29. [Future Considerations](#future-considerations)
+30. [References](#references)
 
 ## Overview
 
@@ -198,23 +199,35 @@ The syntax is optimized for human reading and writing. Whitespace is non-signifi
 ```
 config        = { statement } ;
 statement     = ( assignment | object | array | comment ) [ comment ] newline ;
-assignment    = identifier ( scalar_value | object | array ) ;
-object        = identifier "{" { statement } "}" ;
-array         = identifier "[" [ value_list ] "]" ;
+assignment    = key ( scalar_value | object | array ) ;
+object        = key "{" { statement } "}" ;
+array         = key "[" [ value_list ] "]" ;
+key           = identifier | quoted_string ;
 value_list    = scalar_value { ( whitespace | newline ) scalar_value } ;
 scalar_value  = string | number | boolean | identifier ;
 comment       = "#" { any_char - newline } ;
 identifier    = ( letter | "_" ) { letter | digit | "_" | "-" } ;
 string        = quoted_string | unquoted_string ;
-quoted_string = '"' { char | escape_sequence } '"' ;
-unquoted_string = ( letter | digit | "_" | "-" | "." | "/" | ":" ) 
-                  { letter | digit | "_" | "-" | "." | "/" | ":" } ;
+quoted_string = '"' { string_char | escape_sequence } '"' ;
+string_char   = any_char - '"' - "\" - control_char ;
+unquoted_string = unquoted_char { unquoted_char } ;
+unquoted_char = ( 0x21 ... 0x7E ) - "{" - "}" - "[" - "]" - "#" - '"' ;
 number        = [ "-" ] ( integer | float ) ;
 integer       = digit { digit } ;
 float         = digit { digit } "." digit { digit } ;
 boolean       = "true" | "false" ;
-escape_sequence = "\" ( '"' | "\" | "n" | "t" | "r" | "u" hex_digit hex_digit hex_digit hex_digit ) ;
+escape_sequence = "\" ( '"' | "\" | "n" | "t" | "r" ) ;
+(* "\u" hex hex hex hex is reserved for VIBE 1.1; see String Literals *)
 ```
+
+> **Note on `key`.** A key is normally a bare `identifier`. A `quoted_string` key
+> is permitted so that keys which are not valid identifiers — URL paths
+> (`"/api/login"`), header names (`"content-type"`), IP/CIDR (`"10.0.0.0/8"`) —
+> can still be named. The key's value is the *decoded* string content (after
+> escape processing), compared byte-exactly. `unquoted_char` intentionally admits
+> the full printable-ASCII range minus the five structural characters and the
+> quote, so values like `s3cr3t!@%` are unquoted strings; anything outside that
+> range (spaces, non-ASCII, control characters) requires quoting.
 
 ### Tokens
 
@@ -233,9 +246,10 @@ VIBE recognizes exactly 5 token types:
 ```
 key value
 ```
-- Key must be a valid identifier
-- Value continues until end of line or special character
-- Multiple words in value require quotes
+- The key is a bare identifier, or a quoted string when it is not a valid
+  identifier (e.g. `"/api/login"`, `"content-type"`).
+- Value continues until end of line or a structural character.
+- Multiple words in a value require quotes.
 
 #### Object Declaration
 ```
@@ -310,9 +324,79 @@ server.host # contains dot (would be unquoted string)
 配置        # Unicode not allowed in identifiers
 ```
 
+## Character Encoding and Document Model
+
+This section defines, byte-for-byte, what a VIBE document *is*. These rules exist
+to close the gaps that cause **parser differentials** — the situation where two
+parsers disagree about the same bytes, which is both a correctness bug and a
+security vulnerability (see [Security Considerations](#security-considerations)).
+
+### Encoding
+
+1. A VIBE document MUST be a stream of bytes encoded in **UTF-8**.
+2. A parser MUST reject any input that is not well-formed UTF-8 with an
+   `encoding-error`. Overlong encodings, unpaired surrogate code points
+   (U+D800–U+DFFF), and truncated sequences are all ill-formed and MUST be
+   rejected. A parser MUST NOT attempt to auto-detect UTF-16, Latin-1, or any
+   other encoding.
+3. **No byte order mark.** A leading U+FEFF (BOM) MUST be rejected with an
+   `encoding-error`, and producers MUST NOT emit one. (A BOM is meaningless in
+   UTF-8 and is a common source of “invisible first key” bugs.)
+
+### Forbidden Code Points
+
+1. **U+0000 (NUL) MUST NOT appear anywhere** in a document, including inside
+   quoted strings. A parser that receives length-delimited input MUST reject an
+   embedded NUL with an `illegal-character` error. *(Implementations built on
+   NUL-terminated C strings inherently truncate at the first NUL; such an
+   implementation MUST document this and SHOULD provide a length-aware entry
+   point to remain safe against NUL-smuggling.)*
+2. Raw C0 control characters (U+0001–U+001F) and U+007F **MUST NOT appear
+   literally inside quoted strings**, with the sole exception of the horizontal
+   tab (U+0009). To include other control characters, use an escape such as
+   `\n`, `\r`, or `\t`. This keeps a copy-pasted config from carrying invisible,
+   diff-hostile bytes.
+3. Unicode noncharacters (U+FFFE, U+FFFF, and the like) are permitted inside
+   quoted strings but SHOULD be avoided.
+
+### Line Terminators
+
+1. The statement separator is the line feed **LF (U+000A)**.
+2. **CRLF (U+000D U+000A) is accepted**: the carriage return is treated as
+   insignificant whitespace and the LF terminates the line. This makes VIBE
+   robust to Windows editors and `git` autocrlf.
+3. A **lone CR** (classic-Mac line ending) is **not** a line terminator; it is
+   insignificant whitespace. Producers targeting maximum portability SHOULD use
+   LF. A parser MUST report line numbers by counting LF terminators only, so that
+   error positions are stable across platforms.
+
+### Whitespace
+
+Outside quoted strings, the space (U+0020), horizontal tab (U+0009), and carriage
+return (U+000D) are **insignificant** — they separate tokens but carry no meaning.
+Indentation is never significant. There is no other whitespace: a parser MUST NOT
+treat U+00A0 (no-break space), U+2028/U+2029, or other Unicode spaces as token
+separators; they are ordinary characters and, outside quoted strings, an
+`illegal-character` error.
+
+### The Document Model
+
+1. A document is a sequence of statements that populate an implicit **root
+   object**. The parse result is always an object (never a bare scalar or array).
+2. An **empty document** — zero bytes, or a document containing only whitespace,
+   newlines, and comments — is **valid** and yields an **empty root object**.
+   This is the canonical “nothing configured” state; a parser MUST NOT error on it.
+3. Keys and string contents are compared and stored **byte-exactly**. A parser
+   MUST NOT apply Unicode normalization (NFC/NFD), case folding, or trimming to
+   keys or values. `"caf\u00e9"` (composed) and `"cafe\u0301"` (decomposed) are
+   *different* keys. Since identifiers are ASCII-only (below), this only affects
+   quoted keys and string values.
+
 ## Data Types
 
-VIBE supports 5 fundamental data types with automatic type inference based on syntax patterns:
+VIBE supports 5 fundamental data types with automatic type inference based on
+syntax patterns. Type inference is **total and deterministic**: every token maps
+to exactly one type, and the mapping is identical in every conforming parser.
 
 ### Type Inference Algorithm
 
@@ -377,7 +461,13 @@ hex 0xFF            # Only decimal notation supported
 
 **Syntax Pattern**: `-?[0-9]+\.[0-9]+`
 
-**Range**: Implementations MUST support at least IEEE 754 double precision (64-bit floating point).
+**Range**: A float MUST be represented as at least IEEE 754 double precision
+(binary64). A syntactically valid float whose magnitude is too large to represent
+(it would round to infinity) MUST be rejected with an `invalid-number` error —
+just like an out-of-range integer, a parser MUST NOT silently substitute infinity.
+Values that merely lose precision in the low-order digits (the normal case for
+binary64) are accepted and rounded to the nearest representable double, which is
+deterministic per IEEE 754.
 
 **Examples**:
 ```
@@ -389,23 +479,29 @@ precise 123.456789012345
 ```
 
 **Rules**:
-- Decimal point is REQUIRED (distinguishes from integers)
-- At least one digit must appear on both sides of decimal point
-- Scientific/exponential notation is NOT supported in VIBE 1.0
-- Leading zeros after decimal are significant (0.001 ≠ 0.1)
+- Decimal point is REQUIRED (distinguishes from integers).
+- At least one digit MUST appear on both sides of the decimal point.
+- Exactly one decimal point; `1.2.3` is a **string**, not a float.
+- Leading zeros after the decimal are significant (`0.001` ≠ `0.1`).
+- Negative zero (`-0.0`) is preserved as the IEEE 754 value −0.0.
 
-**Special Values**: 
-Implementations MAY support these unquoted string literals with special float semantics:
-- `inf` or `Infinity` - positive infinity
-- `-inf` or `-Infinity` - negative infinity  
-- `nan` or `NaN` - not a number
+**No special float values, no exponents — by design.** These tokens are **strings**,
+never floats, because silently minting a non-finite number from a bare word is
+exactly the [Norway-problem](#the-vibe-guarantees) class of bug:
 
-**Invalid Syntax**:
+| Token       | VIBE type | Note |
+|-------------|-----------|------|
+| `NaN`, `nan`, `Infinity`, `inf` | **string** | Not-a-number and infinities are never inferred. |
+| `1.5e10`, `6.022e23` | **string** | Scientific/exponential notation is not a VIBE number. |
+| `0x1p4`, `1_000.0` | **string** | No hex floats, no digit separators. |
+
+If an application genuinely needs infinity or scientific notation, it stores the
+string and interprets it itself — the format refuses to guess.
+
+**Invalid Syntax** (rejected, not reinterpreted):
 ```
-no_decimal 42       # Missing decimal point (this is an integer)
-scientific 1.23e10  # Scientific notation not supported
-trailing_dot 42.    # Requires digits after decimal
-leading_dot .42     # Requires digits before decimal
+trailing_dot 42.    # requires digits after the decimal
+leading_dot .42     # requires digits before the decimal
 ```
 
 ### Boolean Type
@@ -612,35 +708,44 @@ all — `\uXXXX` exists only for encoding codepoints that are awkward to type.
 
 ### Unicode Support
 
-- Files must be valid UTF-8
-- Unicode characters can appear directly in quoted strings and comments only
-- `\uXXXX` escape sequences support Basic Multilingual Plane
-- No support for surrogate pairs or `\UXXXXXXXX` sequences
-- **Identifiers and unquoted strings are strictly ASCII-only** for simplicity and performance
+- A document MUST be well-formed UTF-8 (see [Character Encoding and Document
+  Model](#character-encoding-and-document-model)).
+- Non-ASCII characters MAY appear directly, unescaped, inside **quoted strings**
+  and **comments** — and this is the RECOMMENDED way to write them (`"café"`, not
+  an escape).
+- **Identifiers and unquoted strings are ASCII-only** (bytes 0x21–0x7E). To use a
+  key or value containing non-ASCII text, quote it. A non-ASCII byte where an
+  identifier is expected is an `illegal-character` error.
+- The `\uXXXX` escape (four hex digits, Basic Multilingual Plane) is a **VIBE 1.1**
+  feature and is OPTIONAL; a strict 1.0 parser rejects it with `invalid-escape`.
+  There is intentionally **no** `\U`-style 8-digit escape and no surrogate-pair
+  escaping: characters outside the BMP (emoji, etc.) are written **directly** as
+  UTF-8 inside a quoted string, which needs no escape at all.
 
 **Examples**:
 ```
-greeting "Hello, world! 🌍"
-path "C:\Users\Name\Documents"
+greeting "Hello, world! 🌍"     # astral character written directly — the normal way
+thumbs_up "👍 nice"             # no escape needed for emoji
 escaped "She said \"Hello\""
-unicode "Emoji: \u1F44D"
 multiline "Line 1\nLine 2\nLine 3"
+windows_path "C:\\Users\\Name"  # backslashes must be escaped
 
 # ASCII identifiers with Unicode quoted values
-configuration "aplicación"  # ASCII identifier, quoted Unicode value
+configuration "aplicación"       # ASCII key, quoted Unicode value
 settings "сервер"
-config "データベース"
-language english     # ASCII identifier and unquoted ASCII value
-language "español"   # ASCII identifier, quoted Unicode value
+language english               # ASCII key and unquoted ASCII value
+language "español"             # ASCII key, quoted Unicode value
 ```
 
 ### String Parsing Rules
 
 1. **Unquoted String Parsing**:
-   - Starts with first non-whitespace character  
-   - Continues until whitespace, special character, or end of line
-   - Cannot contain `# { } [ ]`
-   - ASCII-only: `[a-zA-Z0-9_-./:]`
+   - Starts with first non-whitespace character.
+   - Continues until whitespace, a structural character, or end of line.
+   - Cannot contain `" # { } [ ]`.
+   - ASCII printable only (0x21–0x7E); e.g. `s3cr3t!@%`, `/usr/local`, `10.0.0.1`,
+     `https://x.example` are all valid unquoted strings. Non-ASCII or
+     whitespace-containing values must be quoted.
 
 2. **Quoted String Parsing**:
    - Starts with `"`
@@ -844,6 +949,28 @@ web_server {
 }
 ```
 
+### Key Names
+
+A key is either a **bare identifier** or a **quoted string**:
+
+1. **Identifier keys** match `[A-Za-z_][A-Za-z0-9_-]*` and are the common case:
+   `host`, `max_connections`, `ssl-enabled`.
+2. **Quoted keys** are used when the key is not a valid identifier — it contains
+   slashes, dots, colons, spaces, or non-ASCII text. The key is the *decoded*
+   string content:
+   ```
+   rate_limits {
+     "/api/auth/login" { rpm 5 }
+     "/api/orders"     { rpm 30 }
+     "content-type"    application/json
+   }
+   ```
+3. Keys are compared **byte-exactly** with no normalization or case folding
+   (see [Character Encoding and Document Model](#character-encoding-and-document-model)).
+   `host` and `"host"` denote the **same** key.
+4. A key MUST NOT be empty: `""` is not a valid key (`unexpected-token`).
+5. Key length is bounded by the [resource limits](#resource-limits-normative).
+
 ### Object Access
 
 Objects are typically accessed using dot notation:
@@ -906,11 +1033,15 @@ server {
 # All of these are valid key names
 true true
 false false
-null null
 if conditional
 for loop_config
 class object_type
 vibe excellent  # meta!
+
+# Keys that are not valid identifiers just need quoting
+"content-type" application/json
+"/api/login" endpoint
+"192.168.0.0/16" internal
 
 # Unicode content must be in quoted strings
 chinese_name "配置"
@@ -918,7 +1049,10 @@ russian_name "сервер"
 spanish_name "configuración"
 ```
 
-This design choice prioritizes flexibility and eliminates the need to escape or quote common configuration key names. Because reserving words is just not the vibe.
+VIBE has no `null`: absence is expressed by omitting the key, which keeps the
+value model total (every present key has a concrete typed value). This design
+choice eliminates the need to escape or quote common configuration key names.
+Because reserving words is just not the vibe.
 
 ## Path Notation
 
@@ -1399,68 +1533,70 @@ VibeValue* parse_vibe(char* input) {
 
 ## Error Handling
 
-### Error Categories
+Errors are part of the contract, not an afterthought. Production tooling (editors,
+CI, config validators) needs errors that are **stable, located, and machine-
+readable**. This section defines that contract.
 
-1. **Lexical Errors**: Invalid character sequences
-2. **Syntax Errors**: Invalid grammar
-3. **Semantic Errors**: Valid syntax but invalid meaning
-4. **Type Errors**: Type inference failures
+### Fail-Closed Guarantee
 
-### Error Reporting
+A conforming parser is **all-or-nothing**: it either returns the complete value
+tree for a fully valid document, or it reports an error and returns **no tree**.
+A parser MUST NOT return a partial or “best-effort” result, and MUST NOT continue
+as if a malformed construct were absent. There is no error recovery, no panic-mode
+resynchronization, and no partial parse — silently salvaging broken input is how
+configuration bugs reach production.
 
-Parsers should provide detailed error information:
+### Error Codes
+
+Every rejection MUST carry one of the following **stable error codes**. These are
+the same tokens used by the [Conformance Test Suite](#conformance-test-suite), so
+a parser's behavior is directly testable. The set is closed for VIBE 1.x; new
+codes may only be *added* in a minor version.
+
+| Code | Meaning |
+|------|---------|
+| `encoding-error` | Input is not well-formed UTF-8, or begins with a BOM. |
+| `illegal-character` | A byte not permitted in this context (NUL, raw control char, stray `+`, non-ASCII identifier byte). |
+| `unexpected-token` | A structural token where a key or value was required (incl. stray `}` / `]`). |
+| `unclosed-object` | `{` with no matching `}` before end of input. |
+| `unclosed-array` | `[` with no matching `]` before end of input. |
+| `unterminated-string` | `"` with no closing `"` on the same logical line. |
+| `nested-container` | An object or array inside an array (violates the First Law). |
+| `invalid-escape` | A backslash escape not defined for this VIBE version. |
+| `invalid-number` | A numeric token out of range or otherwise malformed. |
+| `limit-exceeded` | A [resource limit](#resource-limits-normative) was exceeded. |
+
+### Error Position
+
+An error report MUST include the position of the offending construct:
+
+1. **Line** — 1-based, counting LF terminators only (stable across LF/CRLF).
+2. **Column** — 1-based, counted in Unicode scalar values (not bytes) from the
+   start of the line.
+3. **Byte offset** — 0-based offset into the document, RECOMMENDED, for tools that
+   index by byte.
+
+An error SHOULD also carry a human-readable message. Messages are for humans and
+are **not** part of conformance — only the code and position are. This lets
+implementations phrase messages freely (and yes, keep the good vibes) without
+breaking tools that match on codes.
+
+### Example Report
+
+A structured error, and a matching human rendering:
 
 ```
-Error: Unexpected token '}' on line 15, column 8
-  ssl {
-      ^
-Expected identifier or closing brace
+{ "code": "unclosed-object", "line": 12, "column": 10, "byte": 214 }
+```
+```
+error[unclosed-object]: object opened here was never closed
+  --> config.vibe:12:10
+   |
+12 |   server {
+   |          ^ expected '}' before end of file
 ```
 
-### Common Errors and Messages
-
-#### Unclosed Objects
-```
-Error: Unclosed object on line 12
-  server {
-         ^
-Expected '}' before end of file
-(Looks like this object needs some closure 😉)
-```
-
-#### Invalid Escape Sequence
-```
-Error: Invalid escape sequence '\x' on line 8, column 15
-  path "C:\Users\name"
-              ^
-Valid escape sequences: \" \\ \n \t \r \uXXXX
-(That backslash is trying to escape reality, but VIBE keeps it real!)
-```
-
-#### Duplicate Keys (if implementation rejects)
-```
-Error: Duplicate key 'port' on line 16
-  port 9000
-  ^
-Previously defined on line 14
-(Déjà vu! This key is having an identity crisis.)
-```
-
-#### Invalid Array Syntax
-```
-Error: Expected ']' on line 10, column 25
-  servers [web1.com web2.com
-                            ^
-Arrays must be closed with ']'
-(This array is feeling a bit... open-ended. Let's give it some closure!)
-```
-
-### Recovery Strategies
-
-1. **Panic Mode**: Skip tokens until a synchronization point (e.g., newline, brace)
-2. **Error Production**: Define grammar rules for common errors
-3. **Insertion**: Insert missing tokens when obvious
-4. **Deletion**: Skip unexpected tokens
+EDITORS AND CI SHOULD match on `code`; never scrape the message text.
 
 ## File Format
 
@@ -1474,25 +1610,46 @@ Alternative extensions: `.vb`, `.config`, `.conf`
 **Alternative**: `text/vibe`
 
 ### Character Encoding
-**Required**: UTF-8 without BOM
 
-**Byte Order Mark**: Not permitted. Files must not start with UTF-8 BOM (EF BB BF).
+**Required**: UTF-8, no BOM. See [Character Encoding and Document
+Model](#character-encoding-and-document-model) for the full normative rules
+(UTF-8 validation, forbidden code points, NUL handling). A parser MUST reject a
+leading BOM and any ill-formed UTF-8.
 
 ### Line Endings
-**Supported**: 
-- Unix (LF): `\n`
-- Windows (CRLF): `\r\n`
-- Legacy Mac (CR): `\r`
 
-**Recommended**: Unix line endings for cross-platform compatibility.
+- **LF (`\n`)** — the canonical statement terminator. **RECOMMENDED** for all
+  documents.
+- **CRLF (`\r\n`)** — accepted; the CR is insignificant whitespace.
+- **Lone CR (`\r`)** — **not** a line terminator (it is insignificant
+  whitespace). Classic-Mac line endings therefore merge statements onto one
+  logical line; convert such files to LF. Line numbers are counted by LF only,
+  so error positions are identical on every platform.
 
-### File Size Limits
-**Recommended Limits**:
-- Maximum file size: 10 MB
-- Maximum line length: 1000 characters
-- Maximum nesting depth: 64 levels
-- Maximum identifier length: 255 characters
-- Maximum string length: 1 MB
+### Resource Limits (Normative)
+
+Unbounded input is a denial-of-service vector. A conforming parser **MUST**
+enforce a finite limit on each dimension below and **MUST** reject a document
+that exceeds one with a `limit-exceeded` error (a parser MUST fail closed, never
+truncate silently). The values below are **REQUIRED minimums**: a conforming
+parser MUST accept documents up to at least these limits, and MAY expose higher
+limits as explicit, opt-in configuration.
+
+| Dimension | REQUIRED minimum a parser must accept | Purpose |
+|-----------|----------------------------------------|---------|
+| Document size | 16 MiB | Bounds total memory. |
+| Nesting depth (objects/arrays) | 64 levels | Prevents stack exhaustion / “billion laughs”. |
+| Quoted-string length (decoded) | 1 MiB | Bounds a single allocation. |
+| Identifier / key length | 1 KiB | Bounds key storage. |
+| Array elements per array | 65 536 | Bounds a single container. |
+| Keys per object | 65 536 | Bounds a single container. |
+| Digits in a numeric token | 64 | Bounds number parsing work. |
+
+Rationale: fixed, published limits are what make VIBE **safe to parse from
+untrusted input**. Because every conforming parser accepts at least these
+minimums, a document within them is portable; because every parser also *caps*
+its input, no document can exhaust memory or the stack. Limits MUST be checked
+before the corresponding allocation, not after.
 
 ## Conformance Test Suite
 
@@ -1566,20 +1723,23 @@ expected `.json`. Structural comparison ignores object key ordering.
 
 ### Error Categories
 
-Every file in `invalid/` is paired with exactly one of these category tokens.
-Parsers MUST reject the input; they SHOULD classify the error into the matching
-category, and MUST NOT accept the document.
+Every file in `invalid/` is paired with exactly one **error code** from the
+canonical set defined in [Error Handling → Error Codes](#error-codes). Parsers
+MUST reject the input and MUST NOT accept the document; they SHOULD classify the
+failure with the matching code. The categories currently exercised by the suite:
 
 | Category token       | Triggered by                                             |
 |----------------------|----------------------------------------------------------|
+| `encoding-error`     | ill-formed UTF-8, or a leading BOM                       |
+| `illegal-character`  | a byte not permitted here (NUL, raw control, stray `+`)  |
+| `unexpected-token`   | a structural token where a key or value was required; empty key |
 | `unclosed-object`    | `{` with no matching `}` before EOF                      |
 | `unclosed-array`     | `[` with no matching `]` before EOF                      |
 | `unterminated-string`| `"` with no closing `"` on the same line                 |
 | `nested-container`   | an object or array appearing inside an array (First Law) |
-| `unexpected-token`   | a structural token where a value or key was required     |
 | `invalid-escape`     | a backslash escape not listed in [§String Literals](#string-literals) |
-| `invalid-number`     | numeric-looking token outside the representable range    |
-| `depth-exceeded`     | nesting deeper than the implementation limit             |
+| `invalid-number`     | numeric token out of range or malformed                  |
+| `limit-exceeded`     | a [resource limit](#resource-limits-normative) was exceeded |
 
 ### The Minimum Bar
 
@@ -1608,8 +1768,8 @@ no configuration file is large enough for parse time to matter. The single-pass,
 backtrack-free grammar happens to parse in linear time, but VIBE competes on
 *predictability*, not throughput. Implementations SHOULD keep memory proportional
 to input size (roughly ≤ 2×) and MUST NOT sacrifice correctness or clear error
-reporting for speed.
-- **Scalability**: Linear time complexity O(n) with input size
+reporting for speed. See [Performance Requirements](#performance-requirements)
+for the (deliberately minimal) normative rules.
 
 ### API Design Principles
 
@@ -1650,9 +1810,9 @@ Implementations should include:
 
 1. **Unit Tests**: Individual component testing
 2. **Integration Tests**: End-to-end parsing tests
-3. **Performance Tests**: Benchmarks with various file sizes
-4. **Fuzz Tests**: Random input testing for robustness
-5. **Compatibility Tests**: Cross-implementation compatibility
+3. **Conformance Tests**: The [conformance suite](#conformance-test-suite) — REQUIRED to claim conformance
+4. **Fuzz Tests**: Random input testing for robustness (a parser MUST NOT crash on any input)
+5. **Round-trip Tests**: parse → serialize → parse yields an identical tree
 
 ### Test Suite Examples
 
@@ -1683,68 +1843,69 @@ profile_large_file_parsing()
 
 ## Security Considerations
 
-### Input Validation
+VIBE is designed so that **parsing a config file from an untrusted source is
+safe by construction.** This section states the guarantees, the threats they
+neutralize, and the small number of obligations left to the implementation.
 
-1. **File Size Limits**: Prevent memory exhaustion attacks
-2. **Nesting Depth**: Prevent stack overflow with deep structures
-3. **String Length**: Limit individual string sizes
-4. **Identifier Length**: Limit key name lengths
+### Threat Model
 
-### Recommended Security Limits
+The assumed adversary controls the *bytes of the document* (e.g. a config
+uploaded by a tenant, checked in by a third party, or fetched over the network)
+but not the parser binary. The goals are: no code execution, no resource
+exhaustion, no information disclosure, and — critically — **no parser
+differential.**
 
-```
-MAX_FILE_SIZE = 10 MB
-MAX_NESTING_DEPTH = 64
-MAX_STRING_LENGTH = 1 MB
-MAX_IDENTIFIER_LENGTH = 255 characters
-MAX_ARRAY_SIZE = 10,000 elements
-MAX_OBJECT_KEYS = 10,000 keys
-```
+### Guarantees Provided by the Format
 
-### Attack Vectors
+1. **No code execution, ever.** VIBE has no includes, no references, no variable
+   substitution, no templates, and no external-entity resolution (all
+   [explicitly rejected](#future-considerations)). Parsing a document touches
+   *nothing* outside the input bytes — no filesystem, no network, no environment.
+   This eliminates the entire class of attacks that plague YAML (`!!python/object`)
+   and XML (XXE / billion laughs via external entities).
+2. **No parser differential.** Because the grammar is unambiguous, duplicate keys
+   are defined (last-wins), numbers never silently coerce, and encoding is
+   strict, two conforming parsers **cannot** be made to disagree about a
+   document. This closes the vulnerability class where a validator and a consumer
+   interpret the same config differently (the config-level analogue of HTTP
+   request smuggling). Determinism is a *security property*, not just a nicety.
+3. **Bounded work.** Parsing is O(n) time and O(depth) stack, and every input
+   dimension is capped by a mandatory [resource limit](#resource-limits-normative).
+   There is no construct whose cost is superlinear in its byte length.
 
-#### Billion Laughs Attack
-Prevent exponential memory growth through nested structures:
-```
-# Potential attack - deeply nested objects
-level1 {
-  level2 {
-    level3 {
-      # ... continues for many levels
-    }
-  }
-}
-```
+### Attacks and Why They Fail
 
-**Mitigation**: Enforce maximum nesting depth
+| Attack | Why VIBE is immune |
+|--------|--------------------|
+| **Billion laughs / entity expansion** | No references or entities exist to expand. |
+| **Deep-nesting stack overflow** | Nesting depth is capped (`limit-exceeded`); check is before recursion/allocation. |
+| **Memory exhaustion** (huge string/array/doc) | Document size, string length, and element counts are all capped. |
+| **NUL / encoding smuggling** | NUL is forbidden and ill-formed UTF-8 is rejected, so a validator and a consumer see the same bytes. |
+| **Duplicate-key confusion** | Last-wins is normative; every parser resolves duplicates identically. |
+| **Type-coercion trickery** (`no`→false) | No implicit coercion; a token has exactly one type. |
 
-#### Memory Exhaustion
-Large arrays or strings can consume excessive memory:
-```
-# Potential attack - huge array
-huge_array [item1 item2 ... (millions of items)]
-```
+### Implementation Obligations
 
-**Mitigation**: Enforce size limits and streaming parsing
+A parser is safe against untrusted input **only if** it also:
 
-#### Parser Complexity Attacks
-Certain input patterns may cause quadratic parsing time:
-```
-# Potential attack - many duplicate keys
-key value
-key value
-# ... repeated thousands of times
-```
+1. **Enforces the resource limits** in
+   [Resource Limits](#resource-limits-normative), checking each *before* the
+   corresponding allocation. This is the one place an implementation can
+   reintroduce a DoS if it is careless.
+2. **Fails closed.** On any error, return no tree; never a partial result (see
+   [Error Handling](#error-handling)).
+3. **Does not leak internals in errors.** Error messages SHOULD report position
+   and code, not memory addresses or internal parser state.
+4. **Uses a length-aware entry point** where possible, so an embedded NUL is
+   rejected rather than silently truncating the document. Implementations layered
+   on NUL-terminated C strings MUST document the truncation caveat.
 
-**Mitigation**: Implement linear-time duplicate detection
+> **De-facto duplicate detection cost.** A naive last-wins implementation that
+> re-scans an object's keys on each insert is O(n²) in the number of keys — itself
+> a mild complexity-attack surface. Implementations SHOULD use a hash index for
+> large objects; the mandatory keys-per-object cap bounds the worst case either
+> way.
 
-### Safe Parsing Practices
-
-1. **Validate Input**: Check file size before parsing
-2. **Resource Limits**: Set timeouts and memory limits
-3. **Sanitize Output**: Validate parsed values before use
-4. **Error Handling**: Don't expose internal parser state in errors
-5. **Logging**: Log parsing attempts for security monitoring
 
 ## Performance Requirements
 
@@ -2010,7 +2171,7 @@ VIBE exists to eliminate. Requests to add them will be closed with a link here.
 
 ---
 
-**VIBE Format Specification v1.0**  
+**VIBE Format Specification v1.0.0**  
 *Pass the vibe check* ✓
 
 Remember: Configuration doesn't have to be complicated. Sometimes the best solution is the one that just feels right. 

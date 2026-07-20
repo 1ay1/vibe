@@ -33,8 +33,11 @@ object key ordering.
 
 ## Error categories (invalid/)
 
-`unclosed-object`, `unclosed-array`, `unterminated-string`, `nested-container`,
-`unexpected-token`, `invalid-escape`, `invalid-number`, `depth-exceeded`.
+The canonical error-code set (see SPECIFICATION.md → Error Handling → Error Codes):
+
+`encoding-error`, `illegal-character`, `unexpected-token`, `unclosed-object`,
+`unclosed-array`, `unterminated-string`, `nested-container`, `invalid-escape`,
+`invalid-number`, `limit-exceeded`.
 
 ## Running
 

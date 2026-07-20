@@ -8,6 +8,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- 🔐 **Quoted keys.** Keys that are not valid identifiers (URL paths, header
+  names, IP/CIDR, non-ASCII) can now be written as quoted strings, e.g.
+  `"/api/login" { ... }`. Resolves a long-standing contradiction where the
+  spec's own examples used quoted keys the parser rejected.
+- 📐 **Character Encoding & Document Model** spec section: mandatory UTF-8,
+  BOM rejection, forbidden code points (NUL, raw control chars), line-terminator
+  rules (LF/CRLF/lone-CR), and byte-exact key/value comparison (no Unicode
+  normalization). Empty/whitespace/comment-only documents defined as a valid
+  empty root object.
+- 🚦 **Normative Resource Limits**: a single MUST-enforce table (document size,
+  nesting depth, string/key length, elements/keys per container, number length)
+  with required minimums, replacing three inconsistent “recommended” copies.
+- 🧯 **Structured error model**: a closed set of stable error codes
+  (`encoding-error`, `illegal-character`, `unexpected-token`, `unclosed-object`,
+  `unclosed-array`, `unterminated-string`, `nested-container`, `invalid-escape`,
+  `invalid-number`, `limit-exceeded`) with required 1-based line/column + byte
+  offset and a fail-closed guarantee. Tooling matches on codes, not messages.
+- 🛡️ **Real security threat model**: untrusted-input contract, the
+  parser-differential threat class, and a why-each-attack-fails table
+  (billion laughs, deep nesting, memory exhaustion, NUL/encoding smuggling,
+  duplicate-key confusion, type coercion).
+- 🧪 Six new conformance fixtures: `quoted_keys`, `empty_document`,
+  `no_number_coercion` (valid); `empty_key`, `float_overflow`, `bom_prefix`
+  (invalid). Suite is 18/18 green.
+
+### Fixed
+- 🔢 **Float overflow** (a valid-syntax float too large for binary64) is now
+  rejected with `invalid-number` instead of becoming infinity, matching the
+  integer-overflow rule.
+- 🚫 **Empty keys** (`"" value`) are now rejected.
+- 📝 Removed spec footguns/contradictions: `NaN`/`Infinity`/`1.5e10` are strings
+  (never floats); the broken `\u1F44D` example; the surrogate-pair contradiction;
+  the `null null` reserved-word example; the wrong unquoted-string charset; and
+  the “legacy Mac CR is a line terminator” claim.
+
+### Changed
+- 📖 Grammar updated with a `key = identifier | quoted_string` production and a
+  printable-ASCII `unquoted_char` set that matches the implementation.
+
+## [Conformance milestone]
+
+### Added
 - 🧪 Language-neutral **conformance test suite** (`tests/conformance/`) with a
   tagged-JSON interchange encoding and fixed error-category vocabulary; the
   reference parser now passes 100% (7 valid + 7 invalid fixtures).

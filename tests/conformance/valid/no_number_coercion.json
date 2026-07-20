@@ -1,0 +1,6 @@
+{
+  "not_a_number": { "type": "string", "value": "NaN" },
+  "infinity":     { "type": "string", "value": "Infinity" },
+  "scientific":   { "type": "string", "value": "1.5e10" },
+  "version":      { "type": "string", "value": "2.1.0" }
+}

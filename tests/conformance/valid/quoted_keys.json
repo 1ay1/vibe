@@ -1,0 +1,7 @@
+{
+  "routes": {
+    "/api/login":  { "rpm": { "type": "integer", "value": "5" } },
+    "/api/orders": { "rpm": { "type": "integer", "value": "30" } },
+    "content-type": { "type": "string", "value": "application/json" }
+  }
+}

@@ -1,0 +1,5 @@
+routes {
+  "/api/login" { rpm 5 }
+  "/api/orders" { rpm 30 }
+  "content-type" application/json
+}
