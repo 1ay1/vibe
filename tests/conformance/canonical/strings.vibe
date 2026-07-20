@@ -1,0 +1,7 @@
+plain hello
+spaced "a b c"
+unicode "café ❤ 中文"
+esc "line1\nline2\ttab"
+quote_needed "has \"quotes\""
+numeric_looking "12abc"
+"weird-key/name" 1

@@ -1,0 +1,7 @@
+## deliberately non-canonical: extra blanks, inline comments, odd spacing, leading zeros
+name     "My App"      # aligned + comment
+port   007
+ratio  1.50
+
+
+enabled    true

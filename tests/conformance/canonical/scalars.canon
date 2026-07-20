@@ -1,0 +1,4 @@
+name "My App"
+port 7
+ratio 1.5
+enabled true

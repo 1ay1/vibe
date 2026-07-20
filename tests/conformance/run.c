@@ -278,6 +278,66 @@ static void check_valid(const char* dir, const char* name) {
     free(src); free(expect_raw);
 }
 
+/* Canonical form: parse the .vibe, emit, require byte-equality with the sibling
+ * .canon file, then re-parse the emitted text and require the tree is unchanged
+ * (round-trip). Also require emit is idempotent: emit(parse(emit)) == emit. */
+static void check_canonical(const char* dir, const char* name) {
+    char vibe_path[1024], canon_path[1024];
+    snprintf(vibe_path, sizeof vibe_path, "%s/canonical/%s.vibe", dir, name);
+    snprintf(canon_path, sizeof canon_path, "%s/canonical/%s.canon", dir, name);
+
+    size_t vlen = 0, clen = 0;
+    char* src = read_file(vibe_path, &vlen);
+    char* want = read_file(canon_path, &clen);
+    if (!src || !want) {
+        printf("  FAIL  canonical/%s  (missing fixture)\n", name);
+        g_fail++; free(src); free(want); return;
+    }
+
+    VibeError err; memset(&err, 0, sizeof err);
+    VibeValue* root = vibe_parse(src, vlen, &err);
+    if (!root) {
+        printf("  FAIL  canonical/%s  (rejected: [%s])\n", name, vibe_error_code_string(err.code));
+        vibe_error_free(&err); g_fail++; free(src); free(want); return;
+    }
+
+    char* out = vibe_emit(root);
+    if (!out) { printf("  FAIL  canonical/%s  (emit failed)\n", name); vibe_value_free(root); g_fail++; free(src); free(want); return; }
+
+    /* 1. byte-exact canonical output */
+    int canon_ok = (strcmp(out, want) == 0);
+
+    /* 2. round-trip: re-parse the emitted text, re-encode both trees, compare */
+    int rt_ok = 0, idem_ok = 0;
+    VibeValue* root2 = vibe_parse(out, strlen(out), &err);
+    if (root2) {
+        Buf a = {0}, b = {0};
+        encode_value(&a, root);
+        encode_value(&b, root2);
+        rt_ok = (a.s && b.s && strcmp(a.s, b.s) == 0);
+        free(a.s); free(b.s);
+        char* out2 = vibe_emit(root2);
+        idem_ok = (out2 && strcmp(out, out2) == 0);
+        free(out2);
+        vibe_value_free(root2);
+    } else {
+        vibe_error_free(&err);
+    }
+
+    if (canon_ok && rt_ok && idem_ok) {
+        printf("  ok    canonical/%s\n", name);
+        g_pass++;
+    } else {
+        printf("  FAIL  canonical/%s  (%s%s%s)\n", name,
+               canon_ok ? "" : "bytes-differ ",
+               rt_ok ? "" : "round-trip ",
+               idem_ok ? "" : "not-idempotent");
+        if (!canon_ok) { printf("        expected:\n%s\n        actual:\n%s\n", want, out); }
+        g_fail++;
+    }
+    free(out); vibe_value_free(root); free(src); free(want);
+}
+
 static void check_invalid(const char* dir, const char* name) {
     char vibe_path[1024], txt_path[1024];
     snprintf(vibe_path, sizeof vibe_path, "%s/invalid/%s.vibe", dir, name);
@@ -344,6 +404,8 @@ int main(int argc, char** argv) {
            vibe_version(), vibe_format_version());
     printf("base: %s\n\nvalid/\n", base);
     walk(base, "valid", check_valid);
+    printf("\ncanonical/\n");
+    walk(base, "canonical", check_canonical);
     printf("\ninvalid/\n");
     walk(base, "invalid", check_invalid);
 

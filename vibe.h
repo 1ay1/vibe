@@ -1883,6 +1883,7 @@ static void emit_key(StrBuf* sb, const char* key) {
 
 static void emit_value(StrBuf* sb, const VibeValue* v, int indent) {
     if (v->type == VIBE_TYPE_OBJECT) {
+        if (v->as_object->count == 0) { sb_puts(sb, "{}"); return; }
         sb_puts(sb, "{\n");
         for (size_t i = 0; i < v->as_object->count; i++) {
             sb_indent(sb, indent + 1);

@@ -1,0 +1,17 @@
+app {
+    name   "Service"
+    empty_obj {
+
+    }
+    empty_arr []
+    db {
+        hosts   [ db1   db2   db3 ]
+        port    5432
+        flags   [
+            a
+            b
+        ]
+    }
+}
+neg -0.0
+pi 3.141592653589793

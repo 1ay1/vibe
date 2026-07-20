@@ -11,10 +11,19 @@ the specification byte-for-byte.
 valid/
   <name>.vibe   a conforming document
   <name>.json   its expected value tree (tagged-JSON interchange encoding)
+canonical/
+  <name>.vibe   a (possibly non-canonical) conforming document
+  <name>.canon  the exact bytes a conforming emitter MUST produce
 invalid/
   <name>.vibe   a non-conforming document
   <name>.txt    the required error category (a single token)
 ```
+
+The `canonical/` tree pins the [Canonical Form](../../SPECIFICATION.md#canonical-form-normative):
+for each fixture the harness parses `<name>.vibe`, emits it, and requires the
+output to equal `<name>.canon` **byte for byte**; it then re-parses the emitted
+text (must yield an equal tree) and emits again (must be identical). This is how
+emitter determinism, round-trip, and idempotence are machine-checked.
 
 ## Interchange encoding
 

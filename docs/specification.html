@@ -282,7 +282,7 @@
       </aside>
       <article>
         <h1 id="vibe-format-specification">VIBE Format Specification</h1>
-<p><strong>Version:</strong> 1.0.0 &nbsp;·&nbsp; <strong>Status:</strong> Stable &nbsp;·&nbsp; <strong>Date:</strong> 2025-01-14<br />
+<p><strong>Version:</strong> 1.0.1 &nbsp;·&nbsp; <strong>Status:</strong> Stable &nbsp;·&nbsp; <strong>Date:</strong> 2025-07-20<br />
 <strong>Canonical URL:</strong> https://1ay1.github.io/vibe/specification.html<br />
 <strong>License:</strong> MIT</p>
 <blockquote>
@@ -427,6 +427,7 @@ are informative and impose no requirements.</p>
 <li><a href="#reserved-words">Reserved Words</a></li>
 <li><a href="#path-notation">Path Notation</a></li>
 <li><a href="#duplicate-keys">Duplicate Keys</a></li>
+<li><a href="#canonical-form-normative">Canonical Form</a></li>
 <li><a href="#complete-examples">Complete Examples</a></li>
 <li><a href="#parsing-algorithm">Parsing Algorithm</a></li>
 <li><a href="#error-handling">Error Handling</a></li>
@@ -472,14 +473,18 @@ any competent parser is trivially fast as a side effect.</p>
 <p>The syntax is optimized for human reading and writing. Whitespace is non-significant (except as token separation), comments are allowed anywhere, and unquoted strings reduce visual clutter for simple values. Error messages should provide clear context and actionable guidance for resolution.</p>
 <h2 id="grammar">Grammar</h2>
 <h3 id="formal-grammar-definition-ebnf">Formal Grammar Definition (EBNF)</h3>
-<pre><code>config        = { statement } ;
-statement     = ( assignment | object | array | comment ) [ comment ] newline ;
-assignment    = key ( scalar_value | object | array ) ;
-object        = key &quot;{&quot; { statement } &quot;}&quot; ;
-array         = key &quot;[&quot; [ value_list ] &quot;]&quot; ;
+<pre><code>(* A document is a sequence of lines. Each line is blank, a comment, or a
+   single key/value statement; every value is owned by a key — there are no
+   anonymous top-level objects or arrays. *)
+config        = { line } ;
+line          = [ statement ] [ comment ] newline ;
+statement     = key ( scalar_value | object | array ) ;
+object        = &quot;{&quot; { line } &quot;}&quot; ;
+array         = &quot;[&quot; { separator } [ value_list ] { separator } &quot;]&quot; ;
+value_list    = scalar_value { separator scalar_value } ;
+separator     = whitespace | newline | comment newline ;
 key           = identifier | quoted_string ;
-value_list    = scalar_value { ( whitespace | newline ) scalar_value } ;
-scalar_value  = string | number | boolean | identifier ;
+scalar_value  = number | boolean | string ;   (* identifier is a string *)
 comment       = &quot;#&quot; { any_char - newline } ;
 identifier    = ( letter | &quot;_&quot; ) { letter | digit | &quot;_&quot; | &quot;-&quot; } ;
 string        = quoted_string | unquoted_string ;
@@ -487,14 +492,27 @@ quoted_string = '&quot;' { string_char | escape_sequence } '&quot;' ;
 string_char   = any_char - '&quot;' - &quot;\&quot; - control_char ;
 unquoted_string = unquoted_char { unquoted_char } ;
 unquoted_char = ( 0x21 ... 0x7E ) - &quot;{&quot; - &quot;}&quot; - &quot;[&quot; - &quot;]&quot; - &quot;#&quot; - '&quot;' ;
-number        = [ &quot;-&quot; ] ( integer | float ) ;
-integer       = digit { digit } ;
-float         = digit { digit } &quot;.&quot; digit { digit } ;
+number        = integer | float ;
+integer       = [ &quot;-&quot; ] digit { digit } ;
+float         = [ &quot;-&quot; ] digit { digit } &quot;.&quot; digit { digit } ;
 boolean       = &quot;true&quot; | &quot;false&quot; ;
-escape_sequence = &quot;\&quot; ( '&quot;' | &quot;\&quot; | &quot;n&quot; | &quot;t&quot; | &quot;r&quot; ) ;
-(* &quot;\u&quot; hex hex hex hex is reserved for VIBE 1.1; see String Literals *)
+whitespace    = ( &quot; &quot; | &quot;\t&quot; | &quot;\r&quot; ) { &quot; &quot; | &quot;\t&quot; | &quot;\r&quot; } ;
+newline       = &quot;\n&quot; ;
+escape_sequence = &quot;\&quot; ( '&quot;' | &quot;\&quot; | &quot;n&quot; | &quot;t&quot; | &quot;r&quot; | &quot;u&quot; hex hex hex hex ) ;
+(* &quot;\u&quot; hex hex hex hex is a VIBE 1.1 feature; a strict 1.0 parser rejects it
+   with invalid-escape. See String Literals. *)
 </code></pre>
 <blockquote>
+<p><strong>Grammar notes (normative).</strong>
+1. A <code>statement</code> is <em>always</em> <code>key value</code>. Bare objects, arrays, or scalars
+   with no key are not statements and MUST be rejected (<code>unexpected-token</code>).
+2. <code>scalar_value</code> never includes a container: the value of a key is either a
+   scalar, or an <code>object</code>/<code>array</code> opened by <code>{</code>/<code>[</code> immediately after the key.
+   An <code>identifier</code> on its own is a <code>string</code> (see Type Inference); it is not a
+   distinct value kind.
+3. Inside an <code>array</code>, items are separated by any run of whitespace, newlines,
+   and full-line/inline comments; leading and trailing separators are allowed,
+   so <code>[]</code>, <code>[ ]</code>, and a multi-line array with blank lines are all valid.</p>
 <p><strong>Note on <code>key</code>.</strong> A key is normally a bare <code>identifier</code>. A <code>quoted_string</code> key
 is permitted so that keys which are not valid identifiers — URL paths
 (<code>"/api/login"</code>), header names (<code>"content-type"</code>), IP/CIDR (<code>"10.0.0.0/8"</code>) —
@@ -505,7 +523,7 @@ quote, so values like <code>s3cr3t!@%</code> are unquoted strings; anything outs
 range (spaces, non-ASCII, control characters) requires quoting.</p>
 </blockquote>
 <h3 id="tokens">Tokens</h3>
-<p>VIBE recognizes exactly 5 token types:</p>
+<p>VIBE recognizes exactly six token kinds:</p>
 <ol>
 <li><strong>IDENTIFIER</strong> - <code>[a-zA-Z_][a-zA-Z0-9_-]*</code></li>
 <li><strong>STRING</strong> - Quoted or unquoted text</li>
@@ -514,6 +532,9 @@ range (spaces, non-ASCII, control characters) requires quoting.</p>
 <li><strong>LEFT_BRACKET</strong> - <code>[</code></li>
 <li><strong>RIGHT_BRACKET</strong> - <code>]</code></li>
 </ol>
+<p>(NUMBER and BOOLEAN are not separate token <em>kinds</em>: they are IDENTIFIER/STRING
+tokens re-classified by the deterministic <a href="#type-inference-algorithm">Type Inference</a>
+step. A newline is a statement terminator, not a value token.)</p>
 <h3 id="syntax-rules">Syntax Rules</h3>
 <h4 id="assignment">Assignment</h4>
 <pre><code>key value
@@ -677,6 +698,16 @@ to exactly one type, and the mapping is identical in every conforming parser.</p
 - Type inference is deterministic and order-independent
 - No ambiguity between types - each syntax pattern maps to exactly one type
 - Implementations must follow this exact algorithm for compatibility</p>
+<p><strong>Token boundary (normative).</strong> Type is inferred from a <strong>whole token</strong>, never a
+prefix. The lexer first reads a maximal unquoted token (up to whitespace, a
+structural character, <code>#</code>, or <code>"</code>), then classifies that entire token. So
+<code>12abc</code> is the single token <code>12abc</code>, which does not match the integer or float
+pattern and is therefore the <strong>string</strong> <code>"12abc"</code> — a parser MUST NOT read <code>12</code>
+as an integer and then choke on <code>abc</code>. Conversely a token that <em>does</em> fully
+match the numeric pattern but is out of range (e.g. an integer beyond the
+implementation's width) is an <code>invalid-number</code> error, because it was
+unambiguously <em>intended</em> as a number. In short: matching the numeric pattern is
+an all-or-nothing property of the complete token.</p>
 <h3 id="integer-type">Integer Type</h3>
 <p><strong>Definition</strong>: A sequence of digits optionally preceded by a minus sign, representing whole numbers.</p>
 <p><strong>Syntax Pattern</strong>: <code>-?[0-9]+</code></p>
@@ -1335,6 +1366,80 @@ Duplicate keys are only considered within the same scope:
   port 3000  # Different scope - this is allowed
 }</p>
 <pre><code>
+## Canonical Form (Normative)
+
+Parsing is only half of interoperability; **serialization** is the other half.
+VIBE defines a single *canonical form* so that any two conforming emitters, given
+equal value trees, produce **byte-identical** output. This is what makes
+`vibe fmt` deterministic, keeps diffs minimal, and lets round-trip be a real
+guarantee rather than a hope.
+
+A conforming **emitter** (the operation that turns a value tree back into VIBE
+text, e.g. `vibe_emit` / `vibe fmt`) MUST produce canonical form as defined here.
+Parsers are NOT required to *accept only* canonical input — the format stays
+forgiving on input (extra blank lines, inline comments, alignment) — but every
+emitter MUST *produce* it.
+
+### Structure
+
+1. **Key order is insertion order.** Object keys are emitted in the order they
+   were first assigned in the source document. An emitter MUST NOT sort keys;
+   re-ordering would make an edit that adds one key rewrite the whole file. (The
+   conformance harness compares trees order-insensitively, but the *canonical
+   text* is order-preserving.)
+2. **Indentation is two spaces per nesting level.** No tabs. The root level has
+   no indent.
+3. **One statement per line**, terminated by a single LF (`U+000A`). The file
+   ends with exactly one trailing LF. No CR is ever emitted.
+4. **Exactly one space** separates a key from its value (`key value`), and
+   separates array elements on a single line.
+5. **No comments.** Comments are not part of the value tree, so canonical output
+   contains none. (A comment-preserving formatter is a separate, OPTIONAL tool
+   and is not the canonical form.)
+6. **Objects** are emitted as `key {` … nested lines … `}` on its own line. An
+   empty object is `key {}` on one line.
+7. **Arrays**: an empty array is `key []`. A non-empty array is emitted
+   multi-line — `key [`, then one element per line indented one further level,
+   then `]` at the key's indent. (One element per line keeps diffs stable when an
+   element is added or removed.)
+
+### Scalars
+
+1. **Integer** — minimal decimal form: an optional leading `-`, then digits with
+   no leading zeros (except the value `0` itself), no `+`, no separators. `007`
+   canonicalizes to `7`; `-0` to `0`.
+2. **Float** — the **shortest decimal string that round-trips** to the same IEEE
+   754 double, always containing a `.` and at least one digit on each side.
+   `1.50` → `1.5`, `1.0` → `1.0`, and negative zero is preserved as `-0.0`. An
+   emitter MUST NOT use exponent notation (VIBE has no float exponent syntax);
+   for magnitudes where a plain decimal is impractical the value should not have
+   been representable as a VIBE float in the first place.
+3. **Boolean** — `true` or `false`, lowercase.
+4. **String** — emitted **unquoted** if and only if the exact byte content
+   re-lexes back to the same string token: it is non-empty, is pure printable
+   ASCII in `unquoted_char`, does not match the integer/float pattern, and is
+   not `true`/`false`. Otherwise it is emitted **quoted**, escaping `&quot;` `\` and,
+   using the shortest escape, the control characters (`\n` `\r` `\t`, else
+   `\uXXXX`). Non-ASCII UTF-8 is emitted **directly** inside quotes, never as
+   `\u`. This is the minimal-quoting rule: quote exactly when necessary.
+
+### Round-trip and idempotence (normative)
+
+Let `parse` be a conforming parser and `emit` a conforming emitter. For every
+value tree `T` that `parse` can produce:
+
+1. **Round-trip:** `parse(emit(T))` yields a tree **equal** to `T` (same keys,
+   same insertion order, same scalar types and values). Emit then parse is the
+   identity on trees.
+2. **Idempotence:** `emit(parse(emit(T)))` is **byte-identical** to `emit(T)`.
+   Equivalently, running `vibe fmt` on already-canonical text changes nothing —
+   formatting is a fixed point, so CI can assert “is this file canonical?” by a
+   byte comparison.
+
+These two properties are REQUIRED of any implementation that exposes emission.
+They are exercised by the `canonical/` tree of the [conformance
+suite](#conformance-test-suite).
+
 ## Complete Examples
 
 ### Web Application Configuration
@@ -1895,19 +2000,25 @@ language-neutral conformance suite so that <strong>any</strong> parser — in an
 prove it agrees with this document, byte for byte. This is the mechanism by
 which independent VIBE implementations stay interoperable.</p>
 <h3 id="structure">Structure</h3>
-<p>The suite lives under <code>tests/conformance/</code> and is split into two trees:</p>
+<p>The suite lives under <code>tests/conformance/</code> and is split into three trees:</p>
 <pre><code>tests/conformance/
   valid/
     &lt;name&gt;.vibe      # a conforming document
     &lt;name&gt;.json      # its expected value tree (see encoding below)
+  canonical/
+    &lt;name&gt;.vibe      # a (possibly non-canonical) conforming document
+    &lt;name&gt;.canon     # the exact bytes a conforming emitter MUST produce
   invalid/
     &lt;name&gt;.vibe      # a non-conforming document
     &lt;name&gt;.txt       # the REQUIRED error category (one token, see below)
 </code></pre>
 <p>Every file in <code>valid/</code> MUST parse successfully and produce <strong>exactly</strong> the value
-tree described by its sibling <code>.json</code>. Every file in <code>invalid/</code> MUST be
-rejected; a conforming parser reports an error whose category matches the
-sibling <code>.txt</code>.</p>
+tree described by its sibling <code>.json</code>. Every file in <code>canonical/</code> pins the
+<a href="#canonical-form-normative">Canonical Form</a>: parsing the <code>.vibe</code> and emitting it
+MUST yield the sibling <code>.canon</code> <strong>byte for byte</strong>, the emitted text MUST re-parse
+to an equal tree (round-trip), and a second emit MUST be identical (idempotence).
+Every file in <code>invalid/</code> MUST be rejected; a conforming parser reports an error
+whose category matches the sibling <code>.txt</code>.</p>
 <h3 id="the-interchange-encoding">The Interchange Encoding</h3>
 <p>Because target languages disagree about numbers and types, expected values are
 encoded in a small tagged-JSON dialect. Every VIBE scalar becomes a JSON object
@@ -2024,9 +2135,11 @@ failure with the matching code. The categories currently exercised by the suite:
 </table>
 <h3 id="the-minimum-bar">The Minimum Bar</h3>
 <p>An implementation MAY claim <strong>VIBE 1.0 conformance</strong> if and only if it passes
-100% of the <code>valid/</code> cases and rejects 100% of the <code>invalid/</code> cases. Partial
-passes MUST NOT be advertised as “VIBE-compatible.” Publishing a conformance
-badge that links to the suite run is RECOMMENDED.</p>
+100% of the <code>valid/</code> cases and rejects 100% of the <code>invalid/</code> cases. An
+implementation that also exposes emission (<code>vibe_emit</code> / <code>vibe fmt</code>) MUST
+additionally pass 100% of the <code>canonical/</code> cases to claim conformance for its
+emitter. Partial passes MUST NOT be advertised as “VIBE-compatible.” Publishing
+a conformance badge that links to the suite run is RECOMMENDED.</p>
 <h2 id="implementation-guidelines">Implementation Guidelines</h2>
 <h3 id="memory-management">Memory Management</h3>
 <ol>
@@ -2445,7 +2558,7 @@ tool. VIBE stays small on purpose.</p>
 <li><a href="https://www.antlr.org/">ANTLR</a> - Parser generator</li>
 </ul>
 <hr />
-<p><strong>VIBE Format Specification v1.0.0</strong><br />
+<p><strong>VIBE Format Specification v1.0.1</strong><br />
 <em>Pass the vibe check</em> ✓</p>
 <p>Remember: Configuration doesn't have to be complicated. Sometimes the best solution is the one that just feels right. </p>
 <p>Keep calm and VIBE on! 🌊</p>
