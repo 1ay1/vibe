@@ -269,8 +269,8 @@ typedef struct {
     const char* input;   /* current source (not owned)     */
     size_t pos;          /* byte offset into input         */
     size_t length;       /* length of input in bytes       */
-    int line;            /* current line   (1-based)       */
-    int column;          /* current column (1-based)       */
+    long line;           /* current line   (1-based, saturating) */
+    long column;         /* current column (1-based, saturating) */
     VibeError error;     /* details of the last failure    */
     VibeLimits limits;   /* bounds enforced while parsing  */
 } VibeParser;
@@ -508,7 +508,18 @@ VIBE_API void vibe_value_print(VibeValue* value, int indent);
 #include <ctype.h>
 #include <stdarg.h>
 #include <errno.h>
+#include <limits.h>
 #include <math.h>
+
+#if defined(__unix__) || defined(__APPLE__) || defined(__linux__)
+/* _POSIX_C_SOURCE is defined above, so stat()/S_ISREG are declared even under a
+ * strict -std=c11. Used to reject non-regular files (e.g. directories) in
+ * vibe_parse_file(). */
+#  include <sys/stat.h>
+#  if defined(S_ISREG)
+#    define VIBE_HAVE_STAT 1
+#  endif
+#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -763,8 +774,8 @@ typedef enum {
 typedef struct {
     TokenType type;
     char* value;
-    int line;
-    int column;
+    long line;
+    long column;
 } Token;
 
 typedef enum {
@@ -830,8 +841,10 @@ static void set_error(VibeParser* parser, VibeErrorCode code, const char* fmt, .
     parser->error.code = code;
     vibe__free(parser->error.message);
     parser->error.message = vibe__strdup(buffer);
-    parser->error.line = parser->line;
-    parser->error.column = parser->column;
+    /* VibeError.line/column are int; clamp so a document larger than INT_MAX
+     * bytes (only reachable with a raised max_document_size) can't overflow. */
+    parser->error.line = (int)(parser->line > INT_MAX ? INT_MAX : parser->line);
+    parser->error.column = (int)(parser->column > INT_MAX ? INT_MAX : parser->column);
 }
 
 VibeError vibe_get_last_error(VibeParser* parser) {
@@ -1687,7 +1700,7 @@ VibeValue* vibe_parse_buffer(VibeParser* parser, const char* data, size_t length
      * values are all covered, not just quoted-string bodies. Column/line are
      * tracked so the error points at the offending byte. */
     {
-        int vline = 1, vcol = 1;
+        long vline = 1, vcol = 1;
         size_t i = 0;
         while (i < length) {
             /* Fast path: gallop over runs of plain ASCII (no high bit, no NUL,
@@ -1705,7 +1718,7 @@ VibeValue* vibe_parse_buffer(VibeParser* parser, const char* data, size_t length
                 uint64_t nl = w ^ 0x0A0A0A0A0A0A0A0AULL;
                 if ((nl - 0x0101010101010101ULL) & ~nl & 0x8080808080808080ULL) break;
                 i += 8;
-                vcol += 8;
+                if (vcol <= INT_MAX) vcol += 8;   /* saturate: diagnostics only */
             }
             if (i >= length) break;
 
@@ -1950,6 +1963,21 @@ VibeValue* vibe_parse_file(VibeParser* parser, const char* filename) {
         set_error(parser, VIBE_ERROR_IO, "Cannot open file '%s'", filename);
         return NULL;
     }
+
+    /* On POSIX, fopen() happily opens a directory; fseek/ftell then report a
+     * bogus size and fread reads nothing, so a directory would silently parse
+     * as an empty (valid) document. Reject anything that is not a regular file.
+     * Uses path-based stat() to avoid fileno(), which is hidden under -std=c11. */
+#if defined(VIBE_HAVE_STAT)
+    {
+        struct stat st;
+        if (stat(filename, &st) == 0 && !S_ISREG(st.st_mode)) {
+            fclose(file);
+            set_error(parser, VIBE_ERROR_IO, "'%s' is not a regular file", filename);
+            return NULL;
+        }
+    }
+#endif
 
     if (fseek(file, 0, SEEK_END) != 0) {
         fclose(file);

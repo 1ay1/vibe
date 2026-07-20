@@ -957,7 +957,7 @@ void update_parser_state_panel(DashboardPanel *panel, VibeParser *parser) {
     mvwprintw(panel->win, y, col1, "| Line:");
     wattroff(panel->win, COLOR_PAIR(COLOR_KEY));
     wattron(panel->win, COLOR_PAIR(COLOR_VALUE) | A_BOLD);
-    wprintw(panel->win, " %-9d|", parser->line);
+    wprintw(panel->win, " %-9ld|", parser->line);
     wattroff(panel->win, COLOR_PAIR(COLOR_VALUE) | A_BOLD);
     y++;
 
@@ -965,7 +965,7 @@ void update_parser_state_panel(DashboardPanel *panel, VibeParser *parser) {
     mvwprintw(panel->win, y, col1, "| Column:");
     wattroff(panel->win, COLOR_PAIR(COLOR_KEY));
     wattron(panel->win, COLOR_PAIR(COLOR_VALUE) | A_BOLD);
-    wprintw(panel->win, " %-6d|", parser->column);
+    wprintw(panel->win, " %-6ld|", parser->column);
     wattroff(panel->win, COLOR_PAIR(COLOR_VALUE) | A_BOLD);
     y++;
 
@@ -1394,12 +1394,11 @@ void update_spec_panel(DashboardPanel *panel) {
     }
 
     // Calculate statistics
-    int obj_cnt = 0, arr_cnt = 0, cmt_cnt = 0, kv_cnt = 0;
+    int obj_cnt = 0, arr_cnt = 0, kv_cnt = 0;
     for (int i = 0; i <= current_config_line && i < config_line_count; i++) {
         if (config_lines[i]) {
             if (strchr(config_lines[i], '{')) obj_cnt++;
             if (strchr(config_lines[i], '[')) arr_cnt++;
-            if (config_lines[i][0] == '#') cmt_cnt++;
             if (strchr(config_lines[i], ' ') && config_lines[i][0] != '#') kv_cnt++;
         }
     }
@@ -2403,6 +2402,10 @@ void load_config_file(const char *filename) {
         i++;
     }
 
+    /* If the file was truncated between the two passes, fill the rest so the
+     * cleanup loop (which frees config_line_count slots) never frees garbage. */
+    for (; i < config_line_count; i++) config_lines[i] = strdup("");
+
     fclose(f);
 }
 
@@ -2443,6 +2446,8 @@ void load_config_from_string(const char *content) {
             if (config_lines[i]) {
                 strncpy(config_lines[i], line_start, len);
                 config_lines[i][len] = '\0';
+            } else {
+                config_lines[i] = strdup("");  /* never leave a garbage pointer for cleanup to free */
             }
             i++;
             line_start = p + 1;
@@ -2457,8 +2462,14 @@ void load_config_from_string(const char *content) {
         if (config_lines[i]) {
             strncpy(config_lines[i], line_start, len);
             config_lines[i][len] = '\0';
+        } else {
+            config_lines[i] = strdup("");
         }
+        i++;
     }
+
+    /* Any remaining slots (shouldn't happen, but keep cleanup's free() safe). */
+    for (; i < config_line_count; i++) config_lines[i] = strdup("");
 }
 
 char* read_from_stdin(void) {
@@ -2558,6 +2569,10 @@ char* receive_socket_data(int socket_fd) {
 
     size_t buffer_size = 4096;
     size_t current_size = 0;
+    /* Cap total accepted input so a malicious/runaway client can't exhaust
+     * memory or overflow the doubling arithmetic. 64 MiB is generous for a
+     * config file and matches the library's document-size ceiling. */
+    const size_t MAX_TOTAL = 64u * 1024u * 1024u;
     char *buffer = malloc(buffer_size);
     if (!buffer) {
         close(client_fd);
@@ -2567,19 +2582,30 @@ char* receive_socket_data(int socket_fd) {
     ssize_t bytes_read;
 
     while ((bytes_read = recv(client_fd, temp, sizeof(temp) - 1, 0)) > 0) {
-        if (current_size + bytes_read >= buffer_size) {
-            buffer_size *= 2;
-            char *new_buffer = realloc(buffer, buffer_size);
+        if ((size_t)bytes_read > MAX_TOTAL - current_size) {
+            fprintf(stderr, "Input exceeds %zu-byte limit; closing connection\n", MAX_TOTAL);
+            free(buffer);
+            close(client_fd);
+            return NULL;
+        }
+        if (current_size + (size_t)bytes_read + 1 > buffer_size) {
+            size_t new_size = buffer_size;
+            while (current_size + (size_t)bytes_read + 1 > new_size) {
+                if (new_size > MAX_TOTAL / 2) { new_size = current_size + (size_t)bytes_read + 1; break; }
+                new_size *= 2;
+            }
+            char *new_buffer = realloc(buffer, new_size);
             if (!new_buffer) {
                 free(buffer);
                 close(client_fd);
                 return NULL;
             }
             buffer = new_buffer;
+            buffer_size = new_size;
         }
 
-        memcpy(buffer + current_size, temp, bytes_read);
-        current_size += bytes_read;
+        memcpy(buffer + current_size, temp, (size_t)bytes_read);
+        current_size += (size_t)bytes_read;
 
         if (current_size >= 4 &&
             buffer[current_size - 4] == '\n' &&
@@ -2700,13 +2726,19 @@ char* prompt_file_input(void) {
     long file_size = ftell(f);
     fseek(f, 0, SEEK_SET);
 
-    char *buffer = malloc(file_size + 1);
+    if (file_size < 0) {
+        fclose(f);
+        printf("✗ Could not determine size of '%s' (not a regular file?)\n", filename);
+        return NULL;
+    }
+
+    char *buffer = malloc((size_t)file_size + 1);
     if (!buffer) {
         fclose(f);
         printf("✗ Memory allocation failed\n");
         return NULL;
     }
-    size_t bytes_read = fread(buffer, 1, file_size, f);
+    size_t bytes_read = fread(buffer, 1, (size_t)file_size, f);
     buffer[bytes_read] = '\0';
 
     fclose(f);
@@ -2946,7 +2978,15 @@ int main(int argc, char *argv[]) {
             free(config_content);
             return 1;
         }
-        write(fd, config_content, strlen(config_content));
+        size_t clen = strlen(config_content);
+        if (write(fd, config_content, clen) != (ssize_t)clen) {
+            printf("✗ Failed to write temp file\n");
+            close(fd);
+            unlink(temp_file);
+            free(temp_file);
+            free(config_content);
+            return 1;
+        }
         close(fd);
 
         goto parse_config;
@@ -2979,7 +3019,17 @@ int main(int argc, char *argv[]) {
         free(config_content);
         return 1;
     }
-    write(fd, config_content, strlen(config_content));
+    {
+        size_t clen = strlen(config_content);
+        if (write(fd, config_content, clen) != (ssize_t)clen) {
+            printf("✗ Failed to write temp file\n");
+            close(fd);
+            unlink(temp_file);
+            free(temp_file);
+            free(config_content);
+            return 1;
+        }
+    }
     close(fd);
 
 parse_config:

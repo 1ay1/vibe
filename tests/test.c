@@ -1004,6 +1004,18 @@ void test_sec_first_law_api_guard() {
     PASS();
 }
 
+void test_sec_parse_file_rejects_directory() {
+    TEST("Security: vibe_parse_file rejects a directory");
+    VibeParser* p = vibe_parser_new();
+    ASSERT(p, "parser");
+    /* "." is a directory; on POSIX fopen() would open it and a naive reader
+     * would treat it as an empty valid document. It must fail instead. */
+    VibeValue* v = vibe_parse_file(p, ".");
+    ASSERT(v == NULL, "directory must not parse as a document");
+    vibe_parser_free(p);
+    PASS();
+}
+
 void test_sec_set_push_return_contract() {
     TEST("Security: set/push return true and take ownership");
     VibeValue* obj = vibe_value_new_object();
@@ -1196,6 +1208,7 @@ int main() {
     test_sec_integer_out_of_range();
     test_sec_custom_limits();
     test_sec_first_law_api_guard();
+    test_sec_parse_file_rejects_directory();
     test_sec_set_push_return_contract();
     test_sec_null_safety();
     test_sec_roundtrip_idempotent();
