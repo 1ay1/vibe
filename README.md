@@ -10,6 +10,10 @@ radical rule: **every structured thing has a name.** No anonymous records, no
 implicit type magic, no significant whitespace. The structure you see is the
 structure you get.
 
+> *Why does this exist?* Read **[the Manifesto](docs/MANIFESTO.md)** — the case
+> for a config format that refuses to guess. It's the fastest way to decide if
+> VIBE is for you.
+
 ```vibe
 server {
   host localhost

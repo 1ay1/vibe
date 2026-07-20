@@ -136,9 +136,11 @@ vibe.pc: vibe.pc.in
 docs:
 	python3 tools/gen_docs.py SPECIFICATION.md docs/specification.html \
 		"VIBE Specification" "The complete, normative specification for the VIBE configuration format."
+	python3 tools/gen_docs.py docs/MANIFESTO.md docs/manifesto.html \
+		"The VIBE Manifesto" "The case for a configuration format that refuses to guess."
 	python3 tools/gen_docs.py docs/Stability_Paradox.md docs/Stability_Paradox.html \
 		"The Stability Paradox" "Why VIBE refuses features on purpose."
-	@echo "Regenerated docs/specification.html and docs/Stability_Paradox.html"
+	@echo "Regenerated docs/specification.html, docs/manifesto.html and docs/Stability_Paradox.html"
 
 # ---- tests ------------------------------------------------------------------
 test: $(EXAMPLE_BIN)
