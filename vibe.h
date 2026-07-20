@@ -517,6 +517,63 @@ static uint32_t vibe__hash(const char* s) {
     return h;
 }
 
+/* Strict UTF-8 decode of the codepoint starting at s[0] (len bytes remain).
+ * On success returns the number of bytes consumed (1..4) and writes the code
+ * point to *cp. On any ill-formed sequence — unexpected continuation byte,
+ * truncation, overlong encoding, surrogate (U+D800..U+DFFF), or a value above
+ * U+10FFFF — returns 0. This is the RFC 3629 well-formedness table, so the
+ * parser rejects exactly what the spec forbids. */
+static int vibe__utf8_decode(const unsigned char* s, size_t len, uint32_t* cp) {
+    unsigned char b0 = s[0];
+    if (b0 < 0x80) { *cp = b0; return 1; }            /* ASCII */
+
+    /* Determine sequence length and the valid range of the second byte, which
+     * is what rules out overlong forms and surrogates without extra checks. */
+    unsigned char lo, hi;
+    int n;
+    if (b0 >= 0xC2 && b0 <= 0xDF)      { n = 2; lo = 0x80; hi = 0xBF; }
+    else if (b0 == 0xE0)              { n = 3; lo = 0xA0; hi = 0xBF; } /* no overlong */
+    else if (b0 >= 0xE1 && b0 <= 0xEC) { n = 3; lo = 0x80; hi = 0xBF; }
+    else if (b0 == 0xED)             { n = 3; lo = 0x80; hi = 0x9F; } /* no surrogate */
+    else if (b0 >= 0xEE && b0 <= 0xEF) { n = 3; lo = 0x80; hi = 0xBF; }
+    else if (b0 == 0xF0)             { n = 4; lo = 0x90; hi = 0xBF; } /* no overlong */
+    else if (b0 >= 0xF1 && b0 <= 0xF3) { n = 4; lo = 0x80; hi = 0xBF; }
+    else if (b0 == 0xF4)             { n = 4; lo = 0x80; hi = 0x8F; } /* <= U+10FFFF */
+    else return 0;                    /* 0x80..0xC1, 0xF5..0xFF: never a lead */
+
+    if (len < (size_t)n) return 0;    /* truncated */
+    if (s[1] < lo || s[1] > hi) return 0;
+    for (int i = 2; i < n; i++)
+        if (s[i] < 0x80 || s[i] > 0xBF) return 0;
+
+    uint32_t c = b0 & (0x7Fu >> n);
+    for (int i = 1; i < n; i++) c = (c << 6) | (s[i] & 0x3Fu);
+    *cp = c;
+    return n;
+}
+
+/* Encode code point cp (already validated, BMP for \u) as UTF-8 into out[0..3].
+ * Returns the number of bytes written (1..4). */
+static int vibe__utf8_encode(uint32_t cp, char* out) {
+    if (cp < 0x80) { out[0] = (char)cp; return 1; }
+    if (cp < 0x800) {
+        out[0] = (char)(0xC0 | (cp >> 6));
+        out[1] = (char)(0x80 | (cp & 0x3F));
+        return 2;
+    }
+    if (cp < 0x10000) {
+        out[0] = (char)(0xE0 | (cp >> 12));
+        out[1] = (char)(0x80 | ((cp >> 6) & 0x3F));
+        out[2] = (char)(0x80 | (cp & 0x3F));
+        return 3;
+    }
+    out[0] = (char)(0xF0 | (cp >> 18));
+    out[1] = (char)(0x80 | ((cp >> 12) & 0x3F));
+    out[2] = (char)(0x80 | ((cp >> 6) & 0x3F));
+    out[3] = (char)(0x80 | (cp & 0x3F));
+    return 4;
+}
+
 /* ============================================================================
  * Defaults, error strings, type names
  * ============================================================================ */
@@ -693,11 +750,13 @@ static bool is_identifier_char(int c) {
     return isalnum((unsigned char)c) || c == '_' || c == '-';
 }
 
-/* Printable ASCII 0x21..0x7E, excluding the structural characters. */
+/* Printable ASCII 0x21..0x7E, excluding the structural characters and the
+ * double quote (which always begins a quoted string, so it can never appear
+ * literally inside a bare token). */
 static bool is_unquoted_string_char(int c) {
     unsigned char uc = (unsigned char)c;
     if (uc <= 0x20 || uc > 0x7E) return false;
-    if (uc == '{' || uc == '}' || uc == '[' || uc == ']' || uc == '#') return false;
+    if (uc == '{' || uc == '}' || uc == '[' || uc == ']' || uc == '#' || uc == '"') return false;
     return true;
 }
 
@@ -756,8 +815,10 @@ static void skip_comment(VibeParser* parser) {
 }
 
 /* Read a quoted string into a dynamically grown buffer. Enforces the decoded
- * string-length limit rather than a fixed cap. Returns a heap string the caller
- * owns, or NULL on error (with parser error set). */
+ * string-length limit, rejects raw control characters (all C0 except tab, plus
+ * DEL) and ill-formed UTF-8, and decodes escapes including the VIBE 1.1
+ * \uXXXX form. Returns a heap string the caller owns, or NULL on error (with
+ * the parser error set). */
 static char* parse_quoted_string(VibeParser* parser) {
     parser->pos++; /* opening quote */
     parser->column++;
@@ -770,69 +831,131 @@ static char* parse_quoted_string(VibeParser* parser) {
         return NULL;
     }
 
+    /* Append n bytes, growing as needed. Sets an OOM error and jumps to fail. */
+#define VIBE_SB_APPEND(bytes, n)                                              \
+    do {                                                                      \
+        size_t need_ = (n);                                                   \
+        if (len + need_ + 1 > cap) {                                          \
+            size_t ncap_ = cap;                                              \
+            while (len + need_ + 1 > ncap_) ncap_ *= 2;                       \
+            char* nb_ = (char*)vibe__realloc(buf, ncap_);                     \
+            if (!nb_) { set_error(parser, VIBE_ERROR_OUT_OF_MEMORY, "Out of memory"); goto fail; } \
+            buf = nb_; cap = ncap_;                                          \
+        }                                                                     \
+        memcpy(buf + len, (bytes), need_);                                    \
+        len += need_;                                                         \
+    } while (0)
+
     while (parser->pos < parser->length) {
-        char c = parser->input[parser->pos];
-        char out;
+        unsigned char c = (unsigned char)parser->input[parser->pos];
+
+        if (len > parser->limits.max_string_length) {
+            set_error(parser, VIBE_ERROR_LIMIT_EXCEEDED,
+                      "String exceeds the maximum length of %zu bytes",
+                      parser->limits.max_string_length);
+            goto fail;
+        }
 
         if (c == '"') {
             parser->pos++;
             parser->column++;
             buf[len] = '\0';
             return buf;
-        } else if (c == '\\' && parser->pos + 1 < parser->length) {
-            parser->pos++;
-            parser->column++;
-            char next = parser->input[parser->pos];
+        }
+
+        if (c == '\\') {
+            if (parser->pos + 1 >= parser->length) break; /* trailing backslash -> unterminated */
+            char next = parser->input[parser->pos + 1];
+            char out;
             switch (next) {
                 case '"':  out = '"';  break;
                 case '\\': out = '\\'; break;
                 case 'n':  out = '\n'; break;
                 case 't':  out = '\t'; break;
                 case 'r':  out = '\r'; break;
+                case 'u': {
+                    /* \uXXXX — exactly four hex digits, BMP code point (VIBE 1.1). */
+                    if (parser->pos + 6 > parser->length) {
+                        set_error(parser, VIBE_ERROR_INVALID_ESCAPE,
+                                  "Truncated \\u escape (needs four hex digits)");
+                        goto fail;
+                    }
+                    uint32_t cp = 0;
+                    for (int i = 0; i < 4; i++) {
+                        char h = parser->input[parser->pos + 2 + i];
+                        cp <<= 4;
+                        if (h >= '0' && h <= '9') cp |= (uint32_t)(h - '0');
+                        else if (h >= 'a' && h <= 'f') cp |= (uint32_t)(h - 'a' + 10);
+                        else if (h >= 'A' && h <= 'F') cp |= (uint32_t)(h - 'A' + 10);
+                        else {
+                            set_error(parser, VIBE_ERROR_INVALID_ESCAPE,
+                                      "Invalid hex digit '%c' in \\u escape", h);
+                            goto fail;
+                        }
+                    }
+                    if (cp >= 0xD800 && cp <= 0xDFFF) {
+                        set_error(parser, VIBE_ERROR_INVALID_ESCAPE,
+                                  "\\u escape encodes a UTF-16 surrogate (U+%04X); write the character directly", cp);
+                        goto fail;
+                    }
+                    char enc[4];
+                    int en = vibe__utf8_encode(cp, enc);
+                    VIBE_SB_APPEND(enc, (size_t)en);
+                    parser->pos += 6;
+                    parser->column += 6;
+                    continue;
+                }
                 default:
                     set_error(parser, VIBE_ERROR_INVALID_ESCAPE,
                               "Invalid escape sequence '\\%c'", next);
-                    vibe__free(buf);
-                    return NULL;
+                    goto fail;
             }
-            parser->pos++;
-            parser->column++;
-        } else if (c == '\n') {
-            set_error(parser, VIBE_ERROR_UNTERMINATED_STRING,
-                      "Unterminated string (newline before closing quote)");
-            vibe__free(buf);
-            return NULL;
-        } else {
-            out = c;
-            parser->pos++;
-            parser->column++;
+            VIBE_SB_APPEND(&out, 1);
+            parser->pos += 2;
+            parser->column += 2;
+            continue;
         }
 
-        if (len > parser->limits.max_string_length) {
-            set_error(parser, VIBE_ERROR_LIMIT_EXCEEDED,
-                      "String exceeds the maximum length of %zu bytes",
-                      parser->limits.max_string_length);
-            vibe__free(buf);
-            return NULL;
+        if (c == '\n') {
+            set_error(parser, VIBE_ERROR_UNTERMINATED_STRING,
+                      "Unterminated string (newline before closing quote)");
+            goto fail;
         }
-        if (len + 1 >= cap) {
-            size_t ncap = cap * 2;
-            char* nbuf = (char*)vibe__realloc(buf, ncap);
-            if (!nbuf) {
-                set_error(parser, VIBE_ERROR_OUT_OF_MEMORY, "Out of memory");
-                vibe__free(buf);
-                return NULL;
+
+        /* Reject raw control characters: C0 (U+0001..U+001F) except tab, and
+         * DEL (U+007F). These must be written as escapes, not embedded raw. */
+        if ((c < 0x20 && c != '\t') || c == 0x7F) {
+            set_error(parser, VIBE_ERROR_ILLEGAL_CHARACTER,
+                      "Raw control character U+%04X in string; use an escape sequence", c);
+            goto fail;
+        }
+
+        if (c < 0x80) {
+            VIBE_SB_APPEND((const char*)&c, 1);
+            parser->pos++;
+            parser->column++;
+        } else {
+            /* Multi-byte UTF-8: validate and copy the whole sequence verbatim. */
+            uint32_t cp;
+            int n = vibe__utf8_decode((const unsigned char*)parser->input + parser->pos,
+                                      parser->length - parser->pos, &cp);
+            if (n == 0) {
+                set_error(parser, VIBE_ERROR_ENCODING,
+                          "Ill-formed UTF-8 byte sequence in string (byte 0x%02X)", c);
+                goto fail;
             }
-            buf = nbuf;
-            cap = ncap;
+            VIBE_SB_APPEND(parser->input + parser->pos, (size_t)n);
+            parser->pos += n;
+            parser->column++; /* one column per code point */
         }
-        buf[len++] = out;
     }
 
     set_error(parser, VIBE_ERROR_UNTERMINATED_STRING,
               "Unterminated string (end of input before closing quote)");
+fail:
     vibe__free(buf);
     return NULL;
+#undef VIBE_SB_APPEND
 }
 
 static Token next_token(VibeParser* parser) {
@@ -1237,6 +1360,59 @@ VibeValue* vibe_parse_buffer(VibeParser* parser, const char* data, size_t length
         return NULL;
     }
 
+    /* Validate the ENTIRE byte stream up front: it must be well-formed UTF-8
+     * with no embedded NUL. Doing it once here (a single linear pass) means the
+     * lexer downstream can trust every byte — comments, whitespace, keys and
+     * values are all covered, not just quoted-string bodies. Column/line are
+     * tracked so the error points at the offending byte. */
+    {
+        int vline = 1, vcol = 1;
+        size_t i = 0;
+        while (i < length) {
+            /* Fast path: gallop over runs of plain ASCII (no high bit, no NUL,
+             * no newline) eight bytes at a time using SWAR bit tricks. This is
+             * the common case — keys, numbers, ASCII values — so it keeps the
+             * up-front validation nearly free. */
+            while (i + 8 <= length) {
+                uint64_t w;
+                memcpy(&w, data + i, 8);
+                /* high bit set in any byte? -> non-ASCII, fall to slow path */
+                if (w & 0x8080808080808080ULL) break;
+                /* any NUL byte? (Mycroft's test) */
+                if ((w - 0x0101010101010101ULL) & ~w & 0x8080808080808080ULL) break;
+                /* any newline byte? need per-byte line tracking, so bail */
+                uint64_t nl = w ^ 0x0A0A0A0A0A0A0A0AULL;
+                if ((nl - 0x0101010101010101ULL) & ~nl & 0x8080808080808080ULL) break;
+                i += 8;
+                vcol += 8;
+            }
+            if (i >= length) break;
+
+            unsigned char c = (unsigned char)data[i];
+            if (c == 0x00) {
+                parser->line = vline; parser->column = vcol;
+                set_error(parser, VIBE_ERROR_ILLEGAL_CHARACTER,
+                          "Embedded NUL byte (U+0000) is not permitted in a document");
+                return NULL;
+            }
+            if (c < 0x80) {
+                if (c == '\n') { vline++; vcol = 1; } else { vcol++; }
+                i++;
+            } else {
+                uint32_t cp;
+                int n = vibe__utf8_decode((const unsigned char*)data + i, length - i, &cp);
+                if (n == 0) {
+                    parser->line = vline; parser->column = vcol;
+                    set_error(parser, VIBE_ERROR_ENCODING,
+                              "Ill-formed UTF-8 byte sequence (byte 0x%02X at offset %zu)", c, i);
+                    return NULL;
+                }
+                i += (size_t)n;
+                vcol++;
+            }
+        }
+    }
+
     VibeValue* root = vibe_value_new_object();
     if (!root) {
         set_error(parser, VIBE_ERROR_OUT_OF_MEMORY, "Out of memory");
@@ -1615,15 +1791,27 @@ static void sb_puts(StrBuf* sb, const char* s) { sb_putn(sb, s, strlen(s)); }
 static void sb_indent(StrBuf* sb, int n) { for (int i = 0; i < n; i++) sb_putn(sb, "  ", 2); }
 
 static void sb_put_quoted(StrBuf* sb, const char* s) {
+    static const char hexd[] = "0123456789abcdef";
     sb_putc(sb, '"');
-    for (const char* p = s; *p; p++) {
+    for (const unsigned char* p = (const unsigned char*)s; *p; p++) {
         switch (*p) {
             case '"':  sb_putn(sb, "\\\"", 2); break;
             case '\\': sb_putn(sb, "\\\\", 2); break;
             case '\n': sb_putn(sb, "\\n", 2);  break;
             case '\t': sb_putn(sb, "\\t", 2);  break;
             case '\r': sb_putn(sb, "\\r", 2);  break;
-            default:   sb_putc(sb, *p);        break;
+            default:
+                if (*p < 0x20 || *p == 0x7F) {
+                    /* Any other control char -> \u00XX so the output re-parses
+                     * (raw control chars are rejected by the lexer). */
+                    char esc[6] = { '\\', 'u', '0', '0', 0, 0 };
+                    esc[4] = hexd[(*p >> 4) & 0xF];
+                    esc[5] = hexd[*p & 0xF];
+                    sb_putn(sb, esc, 6);
+                } else {
+                    sb_putc(sb, (char)*p);   /* ASCII or UTF-8 continuation byte */
+                }
+                break;
         }
     }
     sb_putc(sb, '"');

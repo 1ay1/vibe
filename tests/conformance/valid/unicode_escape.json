@@ -1,0 +1,5 @@
+{
+  "bmp":   { "type": "string", "value": "café" },
+  "heart": { "type": "string", "value": "❤" },
+  "mixed": { "type": "string", "value": "中文 text" }
+}
