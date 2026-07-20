@@ -2345,15 +2345,32 @@ static void sb_put_double(StrBuf* sb, double d) {
 
 static void emit_value(StrBuf* sb, const VibeValue* v, int indent, int depth);
 
+/* Fast base-10 formatting of a signed 64-bit integer into buf (which must hold
+ * at least 21 bytes: up to 20 digits for INT64_MIN's magnitude plus a sign).
+ * Returns the number of bytes written (no NUL). Much cheaper than snprintf. */
+static size_t vibe__fmt_i64(int64_t v, char* buf) {
+    char tmp[20];
+    size_t n = 0;
+    /* Work in unsigned to format the magnitude, handling INT64_MIN safely
+     * (its positive value overflows int64_t). */
+    uint64_t u = (v < 0) ? (uint64_t)0 - (uint64_t)v : (uint64_t)v;
+    do { tmp[n++] = (char)('0' + (u % 10)); u /= 10; } while (u);
+    size_t out = 0;
+    if (v < 0) buf[out++] = '-';
+    while (n) buf[out++] = tmp[--n];   /* reverse the digits */
+    return out;
+}
+
 static void emit_scalar(StrBuf* sb, const VibeValue* v) {
     char numbuf[32];
     switch (v->type) {
         case VIBE_TYPE_NULL:    sb_put_quoted(sb, ""); break;
-        case VIBE_TYPE_BOOLEAN: sb_puts(sb, v->as_boolean ? "true" : "false"); break;
-        case VIBE_TYPE_INTEGER:
-            snprintf(numbuf, sizeof(numbuf), "%lld", (long long)v->as_integer);
-            sb_puts(sb, numbuf);
+        case VIBE_TYPE_BOOLEAN: sb_putn(sb, v->as_boolean ? "true" : "false", v->as_boolean ? 4 : 5); break;
+        case VIBE_TYPE_INTEGER: {
+            size_t n = vibe__fmt_i64(v->as_integer, numbuf);
+            sb_putn(sb, numbuf, n);
             break;
+        }
         case VIBE_TYPE_FLOAT: sb_put_double(sb, v->as_float); break;
         case VIBE_TYPE_STRING:
             if (string_is_bare_safe(v->as_string)) sb_puts(sb, v->as_string);
