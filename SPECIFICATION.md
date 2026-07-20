@@ -1,8 +1,67 @@
 # VIBE Format Specification
 
-**Version:** 1.0  
-**Status:** Draft  
-**Date:** 2025-01-14
+**Version:** 1.0.0 &nbsp;·&nbsp; **Status:** Stable &nbsp;·&nbsp; **Date:** 2025-01-14  
+**Canonical URL:** https://1ay1.github.io/vibe/specification.html  
+**License:** MIT
+
+> **VIBE** — *Values In Bracket Expression.* A configuration language with one
+> radical rule: **every structured thing has a name.** No anonymous objects, no
+> positional records, no indentation guessing. The structure you see is the
+> structure you get.
+
+---
+
+## The First Law of VIBE
+
+> **An array MUST NOT contain an object or another array.**
+
+This single sentence is the heart of the language. Every other format lets you
+write an *anonymous list of records*:
+
+```json
+"replicas": [ { "host": "a" }, { "host": "b" } ]
+```
+
+…and every such list is a latent bug: the entries have no stable identity, they
+are addressed by a fragile array index, reordering silently rebinds every
+reference, and merging two configs is undefined. VIBE forbids the pattern
+outright. If a thing is worth structuring, it is worth naming:
+
+```vibe
+replicas {
+  east { host db-east.internal  port 5432 }
+  west { host db-west.internal  port 5432 }
+}
+```
+
+Arrays in VIBE hold **scalars only** — a bag of numbers, strings, or booleans.
+The moment you need structure, you need a key. This is not a missing feature; it
+is *the point.* See [The Stability Paradox](Stability_Paradox.md) for the full
+argument.
+
+---
+
+## Conformance and Notation
+
+The key words **MUST**, **MUST NOT**, **REQUIRED**, **SHALL**, **SHALL NOT**,
+**SHOULD**, **SHOULD NOT**, **RECOMMENDED**, **MAY**, and **OPTIONAL** in this
+document are to be interpreted as described in [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119)
+and [RFC 8174](https://www.rfc-editor.org/rfc/rfc8174) when, and only when, they
+appear in all capitals.
+
+A **conforming VIBE document** is a UTF-8 byte stream that satisfies the grammar
+in [§Grammar](#grammar) and every normative **MUST** in this specification.
+
+A **conforming VIBE parser** is a program that accepts every conforming document
+and produces the value tree this specification defines for it, and rejects every
+non-conforming document with an error. Behavior on non-conforming input is
+defined in [§Error Handling](#error-handling); a conforming parser MUST NOT
+silently accept malformed input.
+
+Sections marked **(Non-normative)** — notably [§Future Considerations](#future-considerations) —
+are informative and impose no requirements.
+
+---
 
 ## Table of Contents
 
@@ -23,14 +82,16 @@
 15. [Parsing Algorithm](#parsing-algorithm)
 16. [Error Handling](#error-handling)
 17. [File Format](#file-format)
-18. [Implementation Guidelines](#implementation-guidelines)
-19. [Security Considerations](#security-considerations)
-20. [Performance Requirements](#performance-requirements)
-21. [Validation and Schema](#validation-and-schema)
-22. [Comparison to Other Formats](#comparison-to-other-formats)
-23. [Migration Guide](#migration-guide)
-24. [Future Considerations](#future-considerations)
-25. [References](#references)
+18. [Conformance Test Suite](#conformance-test-suite)
+19. [Implementation Guidelines](#implementation-guidelines)
+20. [Security Considerations](#security-considerations)
+21. [Performance Requirements](#performance-requirements)
+22. [Validation and Schema](#validation-and-schema)
+23. [Comparison to Other Formats](#comparison-to-other-formats)
+24. [Migration Guide](#migration-guide)
+25. [Versioning and Stability](#versioning-and-stability)
+26. [Future Considerations](#future-considerations)
+27. [References](#references)
 
 ## Overview
 
@@ -221,7 +282,7 @@ function inferType(value):
 
 **Syntax Pattern**: `-?[0-9]+`
 
-**Range**: Implementations MUST support at least 64-bit signed integers (−2^63 to 2^63−1). Values outside this range MAY be rejected or promoted to arbitrary precision integers.
+**Range**: Implementations MUST support at least 64-bit signed integers (−2^63 to 2^63−1). A value that does not fit the implementation's integer type MUST be rejected with an `invalid-number` error — a conforming parser MUST NOT silently clamp, wrap, or truncate an out-of-range integer, because doing so corrupts configuration without warning.
 
 **Examples**:
 ```
@@ -466,16 +527,24 @@ config {
 
 ### Escape Sequences
 
-Quoted strings support the following escape sequences:
+Quoted strings support the following escape sequences. A conforming **VIBE 1.0**
+parser MUST recognize all five core escapes:
 
-| Escape | Character | Unicode | Description |
-|--------|-----------|---------|-------------|
-| `\"` | `"` | U+0022 | Double quote |
-| `\\` | `\` | U+005C | Backslash |
-| `\n` | | U+000A | Newline (LF) |
-| `\r` | | U+000D | Carriage return (CR) |
-| `\t` | | U+0009 | Horizontal tab |
-| `\uXXXX` | | U+XXXX | Unicode codepoint (4 hex digits) |
+| Escape | Character | Unicode | Description | Since |
+|--------|-----------|---------|-------------|-------|
+| `\"` | `"` | U+0022 | Double quote | 1.0 |
+| `\\` | `\` | U+005C | Backslash | 1.0 |
+| `\n` | | U+000A | Newline (LF) | 1.0 |
+| `\r` | | U+000D | Carriage return (CR) | 1.0 |
+| `\t` | | U+0009 | Horizontal tab | 1.0 |
+| `\uXXXX` | | U+XXXX | Unicode codepoint (4 hex digits) | 1.1 |
+
+Any backslash **not** followed by one of the escapes above (for its version) is
+an `invalid-escape` error. In particular, a strict VIBE 1.0 parser — including
+the reference implementation — MUST reject `\uXXXX` with `invalid-escape`;
+`\uXXXX` support is introduced in VIBE 1.1 and is OPTIONAL in 1.0. Note that a
+Unicode character embedded directly in a quoted UTF-8 string needs no escape at
+all — `\uXXXX` exists only for encoding codepoints that are awkward to type.
 
 ### Unicode Support
 
@@ -631,9 +700,13 @@ empty_list []
 
 ### Array Access
 
-Arrays are typically accessed by index in implementations:
-- `servers[0]` → `"prod1.example.com"`
-- `numbers[2]` → `3`
+How arrays are accessed is an **API concern of the host implementation**, not part
+of the document format. Implementations typically expose element access by
+integer index (e.g. a `vibe_array_get(arr, 0)` call). Whether *path strings* also
+support an `[index]` suffix (e.g. `"servers[0]"`) is OPTIONAL and
+implementation-defined; the reference C implementation resolves dotted keys only
+and does not interpret `[index]` inside a path string. Portable code SHOULD fetch
+the array by path and then index it through the array API.
 
 ## Objects
 
@@ -712,7 +785,7 @@ web_server {
 Objects are typically accessed using dot notation:
 - `server.host` → `"localhost"`
 - `application.database.port` → `5432`
-- `web_server.ssl.protocols[0]` → `"TLSv1.2"`
+- `web_server.ssl.protocols` → the array `[TLSv1.2 TLSv1.3]` (index it via the array API)
 
 ## Whitespace and Formatting
 
@@ -785,15 +858,19 @@ This design choice prioritizes flexibility and eliminates the need to escape or 
 
 ## Path Notation
 
-For programmatic access to nested values, implementations should support dot notation:
+For programmatic access to nested values, implementations MUST support dot
+notation over object keys. An optional `[index]` suffix for indexing into arrays
+from within a path string is a common convenience but is **implementation-defined**
+— it is not required for conformance, and the reference C implementation does not
+provide it (fetch the array by dotted path, then index it through the array API).
 
 ### Syntax
 
 ```
 object.property
 object.nested_object.property
-object.array[index]
-object.nested_object.array[index].property
+object.array            # resolves to the array value; index via the array API
+object.array[index]     # OPTIONAL sugar, implementation-defined
 ```
 
 ### Examples
@@ -817,8 +894,11 @@ Path access:
 - `app.name` → `"My Application"`
 - `app.version` → `1.0`
 - `app.database.port` → `5432`
-- `app.database.hosts[0]` → `"db1.example.com"`
-- `app.features[1]` → `"api"`
+- `app.database.hosts` → the array `[db1.example.com db2.example.com]`
+- `app.features` → the array `[auth api cache]`
+
+(To reach an individual element such as `db1.example.com`, resolve the array by
+path and then index it through the implementation's array API.)
 
 ### Implementation Notes
 
@@ -829,23 +909,30 @@ Path access:
 
 ## Duplicate Keys
 
-### Behavior Options
+### Behavior
 
-Implementations must define their behavior for duplicate keys:
+When the same key appears more than once **in the same scope**, the **last
+assignment wins** — later values replace earlier ones. This is the single
+normative rule for VIBE 1.0: a conforming parser MUST resolve a duplicate key to
+its final assignment, and the resulting value tree contains that key exactly
+once.
 
-#### Option 1: Last Value Wins (Recommended)
 ```
 port 8080
 host localhost
-port 9000  # This value is used: 9000
+port 9000  # the resolved value of `port` is 9000
 ```
-Sometimes you change your mind - that's totally valid! VIBE just goes with your latest decision.
 
-#### Option 2: Error on Duplicate
-Parsers reject files with duplicate keys in the same scope. For those who like their configs strict and unambiguous.
+One deterministic rule (rather than a menu of options) is what keeps documents
+portable across implementations: the same bytes always produce the same tree.
 
-#### Option 3: Array Conversion
-Some implementations may convert duplicate keys into arrays. Why choose when you can have both? (Though this might confuse the vibe a bit.)
+> **Rationale.** “Error on duplicate” and “merge into an array” were both
+> considered and rejected. Erroring punishes the common, harmless case of
+> overriding a default; array-merging silently changes a value's *type* based on
+> how many times a key appears, which is exactly the kind of positional fragility
+> the [First Law](#the-first-law-of-vibe) exists to eliminate. Last-wins is the
+> only rule that is both forgiving and unambiguous. A **linting** layer MAY warn
+> on duplicates, but the parse result is defined.
 
 ### Scope Rules
 
@@ -913,11 +1000,11 @@ application {
       }
     }
     
-    replicas [
-      db-replica1.internal:5432
-      db-replica2.internal:5432
-      db-replica3.internal:5432
-    ]
+    replicas {
+      east { host db-replica-east.internal  port 5432 }
+      west { host db-replica-west.internal  port 5432 }
+      analytics { host db-replica-analytics.internal  port 5432 }
+    }
     
     migrations {
       auto_migrate false
@@ -936,11 +1023,11 @@ application {
       max_connections 20
     }
     
-    cluster [
-      cache1.internal:6379
-      cache2.internal:6379
-      cache3.internal:6379
-    ]
+    cluster {
+      node1 { host cache1.internal  port 6379 }
+      node2 { host cache2.internal  port 6379 }
+      node3 { host cache3.internal  port 6379 }
+    }
     
     settings {
       default_ttl 3600
@@ -1112,7 +1199,7 @@ application {
       password "dev_password_123"
     }
     
-    replicas []  # No replicas in development
+    replicas {}  # No replicas in development
   }
   
   cache {
@@ -1343,14 +1430,112 @@ Alternative extensions: `.vb`, `.config`, `.conf`
 - Maximum identifier length: 255 characters
 - Maximum string length: 1 MB
 
+## Conformance Test Suite
+
+A specification is only as real as the tests that pin it down. VIBE ships a
+language-neutral conformance suite so that **any** parser — in any language — can
+prove it agrees with this document, byte for byte. This is the mechanism by
+which independent VIBE implementations stay interoperable.
+
+### Structure
+
+The suite lives under `tests/conformance/` and is split into two trees:
+
+```
+tests/conformance/
+  valid/
+    <name>.vibe      # a conforming document
+    <name>.json      # its expected value tree (see encoding below)
+  invalid/
+    <name>.vibe      # a non-conforming document
+    <name>.txt       # the REQUIRED error category (one token, see below)
+```
+
+Every file in `valid/` MUST parse successfully and produce **exactly** the value
+tree described by its sibling `.json`. Every file in `invalid/` MUST be
+rejected; a conforming parser reports an error whose category matches the
+sibling `.txt`.
+
+### The Interchange Encoding
+
+Because target languages disagree about numbers and types, expected values are
+encoded in a small tagged-JSON dialect. Every VIBE scalar becomes a JSON object
+`{"type": T, "value": V}` where `V` is **always a JSON string** (so no precision
+is lost across languages):
+
+| VIBE type | `type` tag | `value` example            |
+|-----------|------------|----------------------------|
+| integer   | `"integer"`| `"9223372036854775807"`    |
+| float     | `"float"`  | `"3.14159"`                |
+| boolean   | `"boolean"`| `"true"`                   |
+| string    | `"string"` | `"hello\nworld"`           |
+
+Objects map to plain JSON objects; arrays map to plain JSON arrays. For example,
+this document:
+
+```vibe
+server {
+  host localhost
+  port 8080
+}
+ports [80 443]
+```
+
+has exactly this expected tree:
+
+```json
+{
+  "server": {
+    "host": { "type": "string",  "value": "localhost" },
+    "port": { "type": "integer", "value": "8080" }
+  },
+  "ports": [
+    { "type": "integer", "value": "80" },
+    { "type": "integer", "value": "443" }
+  ]
+}
+```
+
+A test harness parses the `.vibe` file with the implementation under test,
+re-encodes the result into this dialect, and compares it structurally to the
+expected `.json`. Structural comparison ignores object key ordering.
+
+### Error Categories
+
+Every file in `invalid/` is paired with exactly one of these category tokens.
+Parsers MUST reject the input; they SHOULD classify the error into the matching
+category, and MUST NOT accept the document.
+
+| Category token       | Triggered by                                             |
+|----------------------|----------------------------------------------------------|
+| `unclosed-object`    | `{` with no matching `}` before EOF                      |
+| `unclosed-array`     | `[` with no matching `]` before EOF                      |
+| `unterminated-string`| `"` with no closing `"` on the same line                 |
+| `nested-container`   | an object or array appearing inside an array (First Law) |
+| `unexpected-token`   | a structural token where a value or key was required     |
+| `invalid-escape`     | a backslash escape not listed in [§String Literals](#string-literals) |
+| `invalid-number`     | numeric-looking token outside the representable range    |
+| `depth-exceeded`     | nesting deeper than the implementation limit             |
+
+### The Minimum Bar
+
+An implementation MAY claim **VIBE 1.0 conformance** if and only if it passes
+100% of the `valid/` cases and rejects 100% of the `invalid/` cases. Partial
+passes MUST NOT be advertised as “VIBE-compatible.” Publishing a conformance
+badge that links to the suite run is RECOMMENDED.
+
 ## Implementation Guidelines
 
 ### Memory Management
 
-1. **Streaming Parser**: Support parsing files larger than available memory
-2. **Memory Efficiency**: Parsed structure should not exceed 2x file size
-3. **Reference Counting**: Implement proper cleanup for nested structures
-4. **String Interning**: Consider interning common string values
+1. **In-Memory Model**: A VIBE document is a bounded configuration file, not a
+   data stream. Implementations MAY read the whole document into memory before
+   parsing; the reference implementation does. Streaming/incremental parsing is
+   OPTIONAL and only worthwhile for unusually large inputs.
+2. **Memory Efficiency**: The parsed structure SHOULD not exceed ~2× the input size.
+3. **Deterministic Cleanup**: Implement complete cleanup of nested structures
+   (recursive free / RAII / GC) with no leaks on either success or error paths.
+4. **String Interning**: Consider interning common string values.
 
 ### Performance Targets
 
@@ -1708,7 +1893,36 @@ vibe-validate config.vibe
 vibe-format config.vibe  # Pretty-print formatter
 ```
 
-## Future Considerations
+## Versioning and Stability
+
+VIBE follows [Semantic Versioning](https://semver.org/) at the level of the
+*language*, not any single implementation.
+
+- **PATCH** (`1.0.x`) — wording clarifications and test-suite additions that do not
+  change which documents are conforming.
+- **MINOR** (`1.x.0`) — **backward-compatible** language additions: any document
+  valid under `1.0` remains valid, with the same value tree, under every later
+  `1.x`. New OPTIONAL syntax (e.g. the `\uXXXX` escape) enters here.
+- **MAJOR** (`x.0.0`) — reserved for a change that could alter the meaning of an
+  existing valid document. None is planned.
+
+### The Stability Promise
+
+The grammar in [§Grammar](#grammar), the type-inference rules, the First Law, and
+the last-wins duplicate rule are **frozen** for all of VIBE 1.x. A document you
+write today will parse to the same tree under any conforming 1.x parser, forever.
+This promise — not any feature — is what makes VIBE safe to build on.
+
+Features under [§Future Considerations](#future-considerations) are explicitly
+**not** part of any stability guarantee until they land in a numbered release with
+accompanying conformance tests. Do not rely on them.
+
+## Future Considerations *(Non-normative)*
+
+This section is **informative**. Nothing here is part of VIBE 1.0, imposes any
+requirement, or may be assumed present by a conforming document or parser. Ideas
+graduate from this list only when they ship in a numbered release with
+conformance tests.
 
 The future is looking bright for VIBE! We're constantly vibing with new ideas while keeping the core philosophy intact.
 

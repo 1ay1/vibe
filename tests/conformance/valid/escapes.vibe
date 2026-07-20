@@ -1,0 +1,4 @@
+quote "she said \"hi\""
+newline "line1\nline2"
+tab "a\tb"
+backslash "c:\\path"

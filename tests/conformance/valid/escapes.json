@@ -1,0 +1,6 @@
+{
+  "quote":     { "type": "string", "value": "she said \"hi\"" },
+  "newline":   { "type": "string", "value": "line1\nline2" },
+  "tab":       { "type": "string", "value": "a\tb" },
+  "backslash": { "type": "string", "value": "c:\\path" }
+}

@@ -1,0 +1,11 @@
+{
+  "name":     { "type": "string",  "value": "My App" },
+  "port":     { "type": "integer", "value": "8080" },
+  "ratio":    { "type": "float",   "value": "3.14" },
+  "negative": { "type": "integer", "value": "-17" },
+  "enabled":  { "type": "boolean", "value": "true" },
+  "disabled": { "type": "boolean", "value": "false" },
+  "host":     { "type": "string",  "value": "localhost" },
+  "path":     { "type": "string",  "value": "/etc/ssl/cert.pem" },
+  "version":  { "type": "string",  "value": "2.1.0" }
+}

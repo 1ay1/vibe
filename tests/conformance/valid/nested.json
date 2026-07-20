@@ -1,0 +1,14 @@
+{
+  "server": {
+    "host": { "type": "string",  "value": "localhost" },
+    "port": { "type": "integer", "value": "8080" },
+    "ssl": {
+      "enabled": { "type": "boolean", "value": "true" }
+    }
+  },
+  "ports": [
+    { "type": "integer", "value": "80" },
+    { "type": "integer", "value": "443" },
+    { "type": "integer", "value": "8080" }
+  ]
+}

@@ -1,0 +1,8 @@
+database {
+  replicas [
+    {
+      host db-east.internal
+      port 5432
+    }
+  ]
+}

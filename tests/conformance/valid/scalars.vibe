@@ -1,0 +1,10 @@
+# Every scalar type, inferred
+name "My App"
+port 8080
+ratio 3.14
+negative -17
+enabled true
+disabled false
+host localhost
+path /etc/ssl/cert.pem
+version 2.1.0

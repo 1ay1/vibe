@@ -1,0 +1,2 @@
+# exceeds the int64 range; must be rejected, not silently clamped
+count 99999999999999999999

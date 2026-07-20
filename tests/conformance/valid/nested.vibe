@@ -1,0 +1,8 @@
+server {
+  host localhost
+  port 8080
+  ssl {
+    enabled true
+  }
+}
+ports [80 443 8080]
