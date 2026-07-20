@@ -1,0 +1,16 @@
+[package]
+name = "vibe-sys"
+version = "1.1.0"
+edition = "2021"
+description = "Native Rust bindings for libvibe (links libvibe.a at build time)"
+publish = false
+
+[lib]
+name = "vibe_sys"
+path = "src/lib.rs"
+
+[[bin]]
+name = "vibe-test"
+path = "src/main.rs"
+
+[build-dependencies]

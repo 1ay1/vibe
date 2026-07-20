@@ -1,0 +1,28 @@
+# Build artifacts from the native extension modules (source is tracked).
+
+# Python C-API
+python/build/
+python/*.so
+
+# Node N-API
+node/build/
+node/node_modules/
+
+# Ruby C-extension
+ruby/Makefile
+ruby/*.o
+ruby/*.so
+ruby/mkmf.log
+ruby/.RUBYARCHDIR.time
+
+# JNI
+java/*.class
+java/Vibe.h
+java/libvibejni.so
+
+# Zig
+zig/.zig-cache/
+zig/zig-out/
+
+# Rust -sys
+rust/target/

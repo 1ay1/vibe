@@ -26,6 +26,12 @@ $ ./run_all.sh
 `run_all.sh <lang> ...` runs a subset; missing toolchains are **skipped**, never
 failed.
 
+> **Want TRUE native extension modules** (not FFI)? See [`native/`](native/) —
+> per-runtime C extensions (CPython C-API, Node N-API, Ruby C-ext, JNI) plus
+> native Zig/Rust modules, each compiled against `libvibe.a` and loaded as a
+> real extension (`import vibe`, `require "vibe"`, `System.loadLibrary`, …). All
+> six verified end-to-end.
+
 ## Status
 
 | Language | Mechanism | Status |
