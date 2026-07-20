@@ -9,7 +9,9 @@ cpp/test
 
 # Python C-API
 python/build/
+python/dist/
 python/*.so
+python/*.egg-info/
 python/__pycache__/
 
 # Node N-API
@@ -20,6 +22,7 @@ node/node_modules/
 ruby/Makefile
 ruby/*.o
 ruby/*.so
+ruby/*.gem
 ruby/mkmf.log
 ruby/.RUBYARCHDIR.time
 

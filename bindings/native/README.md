@@ -102,6 +102,10 @@ When `vibe.h` changes, re-sync the vendored copies before re-publishing:
 ./vendor.sh          # copies vibe.h + vibe_impl.c into each package's vendor/
 ```
 
-Then publish per ecosystem: `python -m build && twine upload dist/*` · `npm
-publish` · `gem build vibe-lang.gemspec && gem push vibe-lang-*.gem` · `cargo
-publish`.
+**Releases are automated.** Pushing a `v*` tag triggers
+[`.github/workflows/release.yml`](../../.github/workflows/release.yml), which
+re-vendors, builds, tests, and publishes all four packages to their registries.
+See [PUBLISHING.md](PUBLISHING.md) for the one-time credential setup and the
+release steps. Manual publish per ecosystem is still `python -m build && twine
+upload dist/*` · `npm publish` · `gem build vibe-lang.gemspec && gem push
+vibe-lang-*.gem` · `cargo publish`.
