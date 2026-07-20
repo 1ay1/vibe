@@ -1414,17 +1414,40 @@ static VibeValue* parse_value_from_token(Token* token) {
         case TOKEN_BOOLEAN:
             return vibe_value_new_boolean(strcmp(token->value, "true") == 0);
         case TOKEN_NUMBER: {
+            const char* s = token->value;
             char* endptr;
-            errno = 0;
-            if (strchr(token->value, '.')) {
-                double val = strtod(token->value, &endptr);
-                if (endptr == token->value || *endptr != '\0' || errno == ERANGE) return NULL;
-                return vibe_value_new_float(val);
-            } else {
-                long long val = strtoll(token->value, &endptr, 10);
-                if (endptr == token->value || *endptr != '\0' || errno == ERANGE) return NULL;
-                return vibe_value_new_integer((int64_t)val);
+            /* Fast path for plain base-10 integers (the overwhelmingly common
+             * case). next_token already validated the token as a number, so a
+             * token containing '.', 'e' or 'E' is a float (-> strtod); anything
+             * else is an integer we can accumulate directly, far cheaper than
+             * strtoll. Out-of-range integers are rejected (matching ERANGE). */
+            if (!strpbrk(s, ".eE")) {
+                const char* p = s;
+                bool neg = false;
+                if (*p == '-') { neg = true; p++; }
+                else if (*p == '+') { p++; }
+                uint64_t acc = 0;
+                bool ok = (*p != '\0');
+                for (; *p; p++) {
+                    if (*p < '0' || *p > '9') { ok = false; break; }
+                    uint64_t prev = acc;
+                    acc = acc * 10u + (uint64_t)(*p - '0');
+                    if (acc < prev) { ok = false; break; }   /* overflow */
+                }
+                if (!ok) return NULL;                         /* malformed / overflow */
+                if (neg) {
+                    if (acc > (uint64_t)INT64_MAX + 1u) return NULL;
+                    return vibe_value_new_integer(acc == (uint64_t)INT64_MAX + 1u
+                        ? INT64_MIN : -(int64_t)acc);
+                }
+                if (acc > (uint64_t)INT64_MAX) return NULL;
+                return vibe_value_new_integer((int64_t)acc);
             }
+            /* Float: hand to strtod for correct rounding. */
+            errno = 0;
+            double val = strtod(s, &endptr);
+            if (endptr == s || *endptr != '\0' || errno == ERANGE) return NULL;
+            return vibe_value_new_float(val);
         }
         case TOKEN_STRING:
         case TOKEN_IDENTIFIER:
