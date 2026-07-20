@@ -12,7 +12,7 @@ from setuptools import setup, Extension
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
 vibe = Extension(
-    "vibe",
+    "_vibe",
     sources=["vibemodule.c"],
     include_dirs=[ROOT],
     extra_objects=[os.path.join(ROOT, "libvibe.a")],
@@ -21,6 +21,7 @@ vibe = Extension(
 setup(
     name="vibe",
     version="1.2.0",
-    description="Native CPython C-API bindings for libvibe",
+    description="VIBE as native Python syntax (libvibe bindings)",
+    py_modules=["vibe"],
     ext_modules=[vibe],
 )

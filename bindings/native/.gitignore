@@ -1,8 +1,12 @@
 # Build artifacts from the native extension modules (source is tracked).
 
+# C++ (_vibe literal)
+cpp/test
+
 # Python C-API
 python/build/
 python/*.so
+python/__pycache__/
 
 # Node N-API
 node/build/

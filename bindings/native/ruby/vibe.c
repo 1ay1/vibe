@@ -99,6 +99,45 @@ static VALUE doc_emit(VALUE self)
     return out;
 }
 
+/* Recursively materialize a VibeValue* into native Ruby objects. */
+static VALUE value_to_ruby(VibeValue *v)
+{
+    if (!v) return Qnil;
+    switch (vibe_value_type(v)) {
+        case VIBE_TYPE_NULL:    return Qnil;
+        case VIBE_TYPE_INTEGER: return LL2NUM(vibe_value_int(v));
+        case VIBE_TYPE_FLOAT:   return DBL2NUM(vibe_value_float(v));
+        case VIBE_TYPE_BOOLEAN: return vibe_value_bool(v) ? Qtrue : Qfalse;
+        case VIBE_TYPE_STRING:  return rb_str_new_cstr(vibe_value_string(v));
+        case VIBE_TYPE_ARRAY: {
+            VibeArray *a = vibe_value_array(v);
+            size_t n = a ? vibe_array_size(a) : 0;
+            VALUE arr = rb_ary_new_capa((long)n);
+            for (size_t i = 0; i < n; i++)
+                rb_ary_push(arr, value_to_ruby(vibe_array_get(a, i)));
+            return arr;
+        }
+        case VIBE_TYPE_OBJECT: {
+            VibeObject *o = vibe_value_object(v);
+            size_t n = o ? vibe_object_size(o) : 0;
+            VALUE hash = rb_hash_new();
+            for (size_t i = 0; i < n; i++) {
+                const char *key = vibe_object_key_at(o, i);
+                rb_hash_aset(hash, rb_str_new_cstr(key ? key : ""),
+                             value_to_ruby(vibe_object_value_at(o, i)));
+            }
+            return hash;
+        }
+    }
+    return Qnil;
+}
+
+/* doc.to_native -> nested Ruby Hash / Array / scalars. */
+static VALUE doc_to_native(VALUE self)
+{
+    return value_to_ruby(doc_ptr(self));
+}
+
 void Init_vibe(void)
 {
     mVibe = rb_define_module("Vibe");
@@ -115,4 +154,5 @@ void Init_vibe(void)
     rb_define_method(cDoc, "get_bool", doc_get_bool, 1);
     rb_define_method(cDoc, "array_size", doc_array_size, 1);
     rb_define_method(cDoc, "emit", doc_emit, 0);
+    rb_define_method(cDoc, "to_native", doc_to_native, 0);
 }

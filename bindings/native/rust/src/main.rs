@@ -1,5 +1,7 @@
 //! Runnable smoke test for the native vibe-sys crate: `cargo run --bin vibe-test`.
 
+use vibe_sys::vibe;
+
 fn main() {
     let sample = include_str!("../../../sample.vibe");
 
@@ -16,5 +18,15 @@ fn main() {
     assert!(doc.emit().unwrap().contains("libvibe"));
     assert!(vibe_sys::Doc::parse("name {").is_err());
 
-    println!("ALL OK (rust native / -sys crate)");
+    // VIBE as native Rust syntax via the vibe! macro.
+    let cfg = vibe! {r#"
+        name  my-service
+        port  8080
+        tls   true
+    "#};
+    assert_eq!(cfg.get_string("name").as_deref(), Some("my-service"));
+    assert_eq!(cfg.get_int("port"), 8080);
+    assert!(cfg.root().get("tls").as_bool());
+
+    println!("ALL OK (rust native / -sys crate, vibe! macro)");
 }

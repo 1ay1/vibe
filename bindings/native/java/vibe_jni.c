@@ -113,3 +113,67 @@ Java_Vibe_free(JNIEnv *env, jclass cls, jlong handle)
 {
     if (handle) vibe_value_free((VibeValue *)(intptr_t)handle);
 }
+
+/* ---- handle-based navigation (for the fluent Node API) ---------------- */
+
+/* Resolve a key/dotted path to a child node handle (0 if absent). */
+JNIEXPORT jlong JNICALL
+Java_Vibe_child(JNIEnv *env, jclass cls, jlong handle, jstring jpath)
+{
+    const char *path = get_path(env, jpath);
+    VibeValue *child = vibe_get((VibeValue *)(intptr_t)handle, path);
+    free_path(env, jpath, path);
+    return (jlong)(intptr_t)child;
+}
+
+/* Element at `index` of the array node (0 if not an array / out of range). */
+JNIEXPORT jlong JNICALL
+Java_Vibe_arrayElement(JNIEnv *env, jclass cls, jlong handle, jint index)
+{
+    VibeValue *v = (VibeValue *)(intptr_t)handle;
+    VibeArray *arr = vibe_get_array(v, NULL);
+    if (!arr || index < 0) return 0;
+    return (jlong)(intptr_t)vibe_array_get(arr, (size_t)index);
+}
+
+/* Length of the array node (0 for non-arrays). */
+JNIEXPORT jint JNICALL
+Java_Vibe_nodeSize(JNIEnv *env, jclass cls, jlong handle)
+{
+    VibeValue *v = (VibeValue *)(intptr_t)handle;
+    VibeArray *arr = vibe_get_array(v, NULL);
+    return (jint)(arr ? vibe_array_size(arr) : 0);
+}
+
+/* VibeType discriminant of a node handle (matches the C enum). */
+JNIEXPORT jint JNICALL
+Java_Vibe_typeOf(JNIEnv *env, jclass cls, jlong handle)
+{
+    if (!handle) return VIBE_TYPE_NULL;
+    return (jint)vibe_value_type((VibeValue *)(intptr_t)handle);
+}
+
+JNIEXPORT jstring JNICALL
+Java_Vibe_nodeString(JNIEnv *env, jclass cls, jlong handle)
+{
+    VibeValue *v = (VibeValue *)(intptr_t)handle;
+    return make_string(env, vibe_value_string(v));
+}
+
+JNIEXPORT jlong JNICALL
+Java_Vibe_nodeInt(JNIEnv *env, jclass cls, jlong handle)
+{
+    return (jlong)vibe_value_int((VibeValue *)(intptr_t)handle);
+}
+
+JNIEXPORT jdouble JNICALL
+Java_Vibe_nodeFloat(JNIEnv *env, jclass cls, jlong handle)
+{
+    return (jdouble)vibe_value_float((VibeValue *)(intptr_t)handle);
+}
+
+JNIEXPORT jboolean JNICALL
+Java_Vibe_nodeBool(JNIEnv *env, jclass cls, jlong handle)
+{
+    return vibe_value_bool((VibeValue *)(intptr_t)handle) ? JNI_TRUE : JNI_FALSE;
+}

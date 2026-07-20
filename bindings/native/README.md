@@ -9,6 +9,26 @@ and no separate `.so` loaded at runtime — the library is part of the module.
 For the FFI bindings (25 languages, runtime `dlopen` of `libvibe.so`), see
 [`../`](../).
 
+## VIBE as native syntax
+
+These go beyond "call `parse("...")`": each one makes a VIBE document a
+first-class construct in the host language, so VIBE reads as part of the
+grammar. You write the document **inline** and get back live, typed, navigable
+data.
+
+| Runtime | Native-syntax form | Example |
+|---------|--------------------|---------|
+| **C++** | `_vibe` user-defined literal (a real operator) | `auto c = R"(port 8080)"_vibe; int p = c["port"];` |
+| **Rust** | `vibe! { ... }` macro (compiles at the call site) | `let c = vibe!{r#"port 8080"#}; c.get_int("port")` |
+| **Node** | `` vibe`...` `` tagged template (with `${}` interpolation) | `` const c = vibe`port ${p}`; c.port `` |
+| **Python** | callable module **+** `# coding: vibe` source codec | `cfg = vibe("""port 8080"""); cfg.port` |
+| **Ruby** | `VIBE(<<~V ... V)` heredoc DSL | `c = VIBE(<<~V)\nport 8080\nV\nc.port` |
+| **Java** | text block `Vibe.of("""...""")` + fluent navigator | `Vibe.of("""port 8080""").get("port").asInt()` |
+
+Interpolation (`${}` in Node) is serialized to VIBE and **escaped**, so nothing a
+caller splices in can break out into structure — no injection. Malformed inline
+documents raise the runtime's native error type at evaluation.
+
 ## Status — all verified end-to-end
 
 Each target parses [`../sample.vibe`](../sample.vibe), asserts identical values,
@@ -16,6 +36,7 @@ and prints `ALL OK (...)`.
 
 | Runtime | Mechanism | Extension ABI | Loads as |
 |---------|-----------|---------------|----------|
+| **C++** | header-only UDL | `#include "vibe.hpp"` (links libvibe.a) | `"..."_vibe` |
 | **CPython** | C-API extension | `Python.h` / `PyModuleDef` | `import vibe` |
 | **Node.js** | N-API addon | `node_api.h` / node-gyp | `require('.../vibe.node')` |
 | **Ruby** | C-extension | `ruby.h` / `mkmf` | `require "vibe"` |
@@ -26,16 +47,17 @@ and prints `ALL OK (...)`.
 ## Run everything
 
 ```sh
-./run_native.sh            # build + test all six
+./run_native.sh            # build + test all seven
 ./run_native.sh python zig # a subset
 ```
 
-Missing toolchains SKIP (not fail). Current box: **6 passed, 0 skipped, 0 failed**.
+Missing toolchains SKIP (not fail). Current box: **7 passed, 0 skipped, 0 failed**.
 
 ## Build individually
 
 | Runtime | Build + test |
 |---------|--------------|
+| C++     | `cd cpp && c++ -std=c++20 -I../../.. test.cpp ../../../libvibe.a -o test && ./test` |
 | CPython | `cd python && python3 setup.py build_ext --inplace && python3 test.py` |
 | Node    | `cd node && node-gyp configure build && node test.mjs` |
 | Ruby    | `cd ruby && ruby extconf.rb && make && ruby test.rb` |

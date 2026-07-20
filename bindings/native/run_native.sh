@@ -18,7 +18,7 @@ if [[ ! -f "$ROOT/libvibe.a" ]]; then
     make -C "$ROOT" >/dev/null 2>&1 || { echo "FATAL: cannot build libvibe.a"; exit 1; }
 fi
 
-ALL=(python node ruby java zig rust)
+ALL=(cpp python node ruby java zig rust)
 WANT=("$@")
 [[ ${#WANT[@]} -eq 0 ]] && WANT=("${ALL[@]}")
 
@@ -30,6 +30,10 @@ declare -A RESULT
 run_one() {
     local name="$1"
     case "$name" in
+      cpp)
+        have c++ || have g++ || { RESULT[$name]="SKIP (no C++ compiler)"; return 2; }
+        local cxx; cxx=$(command -v c++ || command -v g++)
+        ( cd cpp && "$cxx" -std=c++20 -Wall -Wextra -I"$ROOT" test.cpp "$ROOT/libvibe.a" -o test && ./test ) ;;
       python)
         have python3 || { RESULT[$name]="SKIP (no python3)"; return 2; }
         ( cd python && python3 setup.py build_ext --inplace >/dev/null 2>&1 && python3 test.py ) ;;
