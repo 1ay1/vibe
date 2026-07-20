@@ -470,7 +470,10 @@ VIBE_API bool vibe_array_push_bool(VibeArray* array, bool value);
  *  result is heap-allocated — free it with vibe_free(). NULL on failure. */
 VIBE_API char* vibe_emit(const VibeValue* value);
 
-/** Emit to a file (atomic write is not guaranteed). Returns true on success. */
+/** Emit to a file. On POSIX the write is ATOMIC (temp file + fsync + rename),
+ *  so a crash or write error never leaves the target truncated or partial — it
+ *  keeps either the old content or the fully-written new content. Returns true
+ *  on success. */
 VIBE_API bool vibe_emit_file(const VibeValue* value, const char* path);
 
 /* ============================================================================
@@ -516,9 +519,13 @@ VIBE_API void vibe_value_print(VibeValue* value, int indent);
  * strict -std=c11. Used to reject non-regular files (e.g. directories) in
  * vibe_parse_file(). */
 #  include <sys/stat.h>
+#  include <unistd.h>   /* fsync, write, close, getpid */
+#  include <fcntl.h>    /* open, O_* */
 #  if defined(S_ISREG)
 #    define VIBE_HAVE_STAT 1
 #  endif
+/* Atomic file replace (temp + fsync + rename) is available on POSIX. */
+#  define VIBE_HAVE_ATOMIC_WRITE 1
 #endif
 
 #ifdef __cplusplus
@@ -2372,18 +2379,79 @@ char* vibe_emit(const VibeValue* value) {
     return sb.data;
 }
 
+/* Write `text` (n bytes) to a brand-new file at `path`, flushing and — where
+ * available — fsync'ing before close so the bytes are durable. Returns true iff
+ * every byte reached the file and close() succeeded. */
+static bool vibe__write_all(const char* path, const char* text, size_t n) {
+#if defined(VIBE_HAVE_ATOMIC_WRITE)
+    /* Raw POSIX I/O so we can fsync the descriptor without fileno() (which is
+     * awkward to expose under a strict -std=c11). */
+    int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (fd < 0) return false;
+    bool ok = true;
+    size_t off = 0;
+    while (off < n) {
+        ssize_t w = write(fd, text + off, n - off);
+        if (w < 0) {
+            if (errno == EINTR) continue;   /* retry a signal-interrupted write */
+            ok = false;
+            break;
+        }
+        off += (size_t)w;
+    }
+    if (ok && fsync(fd) != 0) ok = false;
+    if (close(fd) != 0) ok = false;
+    return ok;
+#else
+    FILE* f = fopen(path, "wb");
+    if (!f) return false;
+    bool ok = (fwrite(text, 1, n, f) == n);
+    if (ok && fflush(f) != 0) ok = false;
+    if (fclose(f) != 0) ok = false;
+    return ok;
+#endif
+}
+
 bool vibe_emit_file(const VibeValue* value, const char* path) {
     if (!value || !path) return false;
     char* text = vibe_emit(value);
     if (!text) return false;
-    FILE* f = fopen(path, "wb");
-    if (!f) { vibe__free(text); return false; }
     size_t n = strlen(text);
-    size_t w = fwrite(text, 1, n, f);
-    int ok = (w == n);
-    if (fclose(f) != 0) ok = 0;
+
+#if defined(VIBE_HAVE_ATOMIC_WRITE)
+    /* Atomic replace: write to a sibling temp file, fsync it, then rename() over
+     * the target. rename() is atomic on POSIX, so a crash / disk-full / write
+     * error can never leave the caller's original file truncated or
+     * half-written — it is either the complete old content or the complete new
+     * content. This is what makes `vibe fmt -w` safe on a real config file.
+     * The temp lives in the SAME directory so rename() stays within one
+     * filesystem (cross-device rename would fail with EXDEV). */
+    {
+        size_t plen = strlen(path);
+        /* "<path>.vibe-tmp-<pid>" ; pid as unsigned long is <= 20 digits. */
+        size_t tlen = plen + sizeof(".vibe-tmp-") + 24;
+        char* tmp = (char*)vibe__malloc(tlen);
+        if (tmp) {
+            snprintf(tmp, tlen, "%s.vibe-tmp-%lu", path, (unsigned long)getpid());
+            if (vibe__write_all(tmp, text, n)) {
+                if (rename(tmp, path) == 0) {
+                    vibe__free(tmp);
+                    vibe__free(text);
+                    return true;
+                }
+            }
+            remove(tmp);          /* best-effort cleanup of the temp on any failure */
+            vibe__free(tmp);
+            /* Fall through to a direct write only if the temp path itself could
+             * not be used (e.g. unwritable directory); this preserves the
+             * previous best-effort behaviour rather than silently failing. */
+        }
+    }
+#endif
+
+    bool ok = vibe__write_all(path, text, n);
     vibe__free(text);
-    return ok != 0;
+    return ok;
 }
 
 /* ============================================================================

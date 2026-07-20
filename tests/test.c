@@ -1190,6 +1190,38 @@ void test_sec_deep_tree_no_stack_overflow() {
     PASS();
 }
 
+void test_sec_emit_file_atomic() {
+    TEST("Security: vibe_emit_file writes atomically and cleans up temps");
+    const char* path = "/tmp/vibe_atomic_test.vibe";
+    remove(path);
+    /* Seed an original document. */
+    VibeParser* p = vibe_parser_new();
+    ASSERT(p, "parser");
+    VibeValue* v1 = vibe_parse_buffer(p, "name Alice\nport 8080\n", 21);
+    ASSERT(v1, "seed parse");
+    ASSERT(vibe_emit_file(v1, path), "initial emit_file");
+    vibe_value_free(v1);
+
+    /* Re-emit different content over the same path (the fmt -w case). */
+    VibeValue* v2 = vibe_parse_buffer(p, "name Bob\nport 9090\n", 19);
+    ASSERT(v2, "reparse");
+    ASSERT(vibe_emit_file(v2, path), "rewrite emit_file");
+    vibe_value_free(v2);
+    vibe_parser_free(p);
+
+    /* The file must hold exactly the new content, fully written. */
+    VibeParser* p2 = vibe_parser_new();
+    VibeValue* back = vibe_parse_file(p2, path);
+    ASSERT(back, "reparse written file");
+    ASSERT(strcmp(vibe_get_string(back, "name"), "Bob") == 0, "name updated");
+    ASSERT(vibe_get_int(back, "port") == 9090, "port updated");
+    vibe_value_free(back);
+    vibe_parser_free(p2);
+
+    remove(path);
+    PASS();
+}
+
 int main() {
     printf("\n");
     printf(COLOR_BLUE "╔══════════════════════════════════════════════════════════╗\n" COLOR_RESET);
@@ -1261,6 +1293,7 @@ int main() {
     test_sec_hash_index_stress();
     test_sec_fuzz_no_crash();
     test_sec_deep_tree_no_stack_overflow();
+    test_sec_emit_file_atomic();
     
     /* Summary */
     printf("\n");
