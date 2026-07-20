@@ -1144,6 +1144,52 @@ void test_sec_fuzz_no_crash() {
     PASS();
 }
 
+void test_sec_deep_tree_no_stack_overflow() {
+    TEST("Security: deep object tree never overflows the C stack");
+    /* The value-builder API can nest objects past the parser's max_depth. The
+     * recursive tree walkers (emit/clone/equals/print) must fail closed and
+     * vibe_value_free must free any depth without recursing. Build a chain far
+     * deeper than VIBE_MAX_RECURSION_DEPTH so a naive recursive walk would
+     * SIGSEGV. */
+    const int DEPTH = 200000;
+    VibeValue* root = vibe_value_new_object();
+    ASSERT(root, "root");
+    VibeObject* cur = root->as_object;
+    for (int i = 0; i < DEPTH; i++) {
+        VibeValue* child = vibe_value_new_object();
+        ASSERT(child, "child alloc");
+        ASSERT(vibe_object_set(cur, "k", child), "set child");
+        cur = child->as_object;
+    }
+    /* emit fails closed (returns NULL) rather than crashing. */
+    char* e = vibe_emit(root);
+    ASSERT(e == NULL, "emit fails closed on over-deep tree");
+    vibe_free(e);
+    /* clone fails closed (NULL), no crash. */
+    VibeValue* c = vibe_value_clone(root);
+    ASSERT(c == NULL, "clone fails closed on over-deep tree");
+    vibe_value_free(c);
+    /* equals must not crash. Same-pointer short-circuits to true (safe, no
+     * descent); comparing two DISTINCT deep trees forces descent and hits the
+     * recursion cap, which fails closed to false without a stack overflow.
+     * Build a second, equally deep tree to prove it. */
+    ASSERT(vibe_value_equals(root, root), "same pointer is trivially equal");
+    VibeValue* root2 = vibe_value_new_object();
+    ASSERT(root2, "root2");
+    VibeObject* cur2 = root2->as_object;
+    for (int i = 0; i < DEPTH; i++) {
+        VibeValue* child = vibe_value_new_object();
+        ASSERT(child, "child2 alloc");
+        ASSERT(vibe_object_set(cur2, "k", child), "set child2");
+        cur2 = child->as_object;
+    }
+    ASSERT(!vibe_value_equals(root, root2), "distinct deep trees fail closed past cap (no crash)");
+    vibe_value_free(root2);
+    /* The whole point: freeing a 200k-deep tree must succeed, not SIGSEGV. */
+    vibe_value_free(root);
+    PASS();
+}
+
 int main() {
     printf("\n");
     printf(COLOR_BLUE "╔══════════════════════════════════════════════════════════╗\n" COLOR_RESET);
@@ -1214,6 +1260,7 @@ int main() {
     test_sec_roundtrip_idempotent();
     test_sec_hash_index_stress();
     test_sec_fuzz_no_crash();
+    test_sec_deep_tree_no_stack_overflow();
     
     /* Summary */
     printf("\n");

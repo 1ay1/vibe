@@ -534,6 +534,17 @@ extern "C" {
 #define VIBE_OBJECT_HASH_THRESHOLD 8
 #endif
 
+/* Hard ceiling on how deep the recursive tree walkers (emit, clone, equals,
+ * print) will descend before failing closed. The value-builder API lets a
+ * caller nest objects arbitrarily deep — past the parser's max_depth — so
+ * without this a pathological tree would overflow the C stack (a crash / DoS).
+ * vibe_value_free is exempt: it uses an explicit heap worklist and never
+ * recurses, so it always frees any depth. Override at compile time if you
+ * genuinely need deeper trees AND run with a large stack. */
+#ifndef VIBE_MAX_RECURSION_DEPTH
+#define VIBE_MAX_RECURSION_DEPTH 10000
+#endif
+
 /* ============================================================================
  * Allocator hooks
  * ============================================================================
@@ -1249,8 +1260,9 @@ VibeValue* vibe_value_new_object(void) {
     return v;
 }
 
-VibeValue* vibe_value_clone(const VibeValue* value) {
+static VibeValue* vibe__value_clone(const VibeValue* value, int depth) {
     if (!value) return NULL;
+    if (depth > VIBE_MAX_RECURSION_DEPTH) return NULL; /* fail closed on deep trees */
     switch (value->type) {
         case VIBE_TYPE_NULL:    return vibe_value_new_null();
         case VIBE_TYPE_INTEGER: return vibe_value_new_integer(value->as_integer);
@@ -1261,7 +1273,7 @@ VibeValue* vibe_value_clone(const VibeValue* value) {
             VibeValue* arr = vibe_value_new_array();
             if (!arr) return NULL;
             for (size_t i = 0; i < value->as_array->count; i++) {
-                VibeValue* el = vibe_value_clone(value->as_array->values[i]);
+                VibeValue* el = vibe__value_clone(value->as_array->values[i], depth + 1);
                 if (!el) { vibe_value_free(arr); return NULL; }
                 if (!vibe_array_push(arr->as_array, el)) { vibe_value_free(arr); return NULL; }
             }
@@ -1271,7 +1283,7 @@ VibeValue* vibe_value_clone(const VibeValue* value) {
             VibeValue* obj = vibe_value_new_object();
             if (!obj) return NULL;
             for (size_t i = 0; i < value->as_object->count; i++) {
-                VibeValue* cv = vibe_value_clone(value->as_object->entries[i].value);
+                VibeValue* cv = vibe__value_clone(value->as_object->entries[i].value, depth + 1);
                 if (!cv) { vibe_value_free(obj); return NULL; }
                 if (!vibe_object_set(obj->as_object, value->as_object->entries[i].key, cv)) {
                     vibe_value_free(obj); return NULL;
@@ -1283,10 +1295,17 @@ VibeValue* vibe_value_clone(const VibeValue* value) {
     return NULL;
 }
 
-bool vibe_value_equals(const VibeValue* a, const VibeValue* b) {
+VibeValue* vibe_value_clone(const VibeValue* value) {
+    return vibe__value_clone(value, 0);
+}
+
+static bool vibe__value_equals(const VibeValue* a, const VibeValue* b, int depth) {
     if (a == b) return true;              /* same pointer, incl. both NULL */
     if (!a || !b) return false;
     if (a->type != b->type) return false;
+    /* Fail closed on pathologically deep trees: refuse to descend further and
+     * report "not equal" rather than overflow the C stack. */
+    if (depth > VIBE_MAX_RECURSION_DEPTH) return false;
     switch (a->type) {
         case VIBE_TYPE_NULL:    return true;
         case VIBE_TYPE_INTEGER: return a->as_integer == b->as_integer;
@@ -1300,7 +1319,7 @@ bool vibe_value_equals(const VibeValue* a, const VibeValue* b) {
             const VibeArray* x = a->as_array; const VibeArray* y = b->as_array;
             if (x->count != y->count) return false;
             for (size_t i = 0; i < x->count; i++)
-                if (!vibe_value_equals(x->values[i], y->values[i])) return false;
+                if (!vibe__value_equals(x->values[i], y->values[i], depth + 1)) return false;
             return true;
         }
         case VIBE_TYPE_OBJECT: {
@@ -1310,12 +1329,16 @@ bool vibe_value_equals(const VibeValue* a, const VibeValue* b) {
              * y's hash index when present, so this is O(n) not O(n^2). */
             for (size_t i = 0; i < x->count; i++) {
                 VibeValue* yv = vibe_object_get((VibeObject*)y, x->entries[i].key);
-                if (!yv || !vibe_value_equals(x->entries[i].value, yv)) return false;
+                if (!yv || !vibe__value_equals(x->entries[i].value, yv, depth + 1)) return false;
             }
             return true;
         }
     }
     return false;
+}
+
+bool vibe_value_equals(const VibeValue* a, const VibeValue* b) {
+    return vibe__value_equals(a, b, 0);
 }
 
 /* ============================================================================
@@ -1629,35 +1652,76 @@ bool vibe_array_push_bool(VibeArray* arr, bool value) {
  * Cleanup
  * ============================================================================ */
 
+/* Free a value tree WITHOUT recursion. A naive recursive free overflows the C
+ * stack on a deeply nested tree (the value-builder API can nest objects past
+ * the parser's max_depth). Instead we push every child container onto an
+ * explicit heap worklist and free scalars/keys inline. If the worklist itself
+ * can't grow (OOM), we fall back to a bounded recursive drain of that subtree
+ * so we still make progress and never leak more than the current node's
+ * children — in practice the worklist growth is geometric and effectively
+ * never fails for a tree that fit in memory to begin with. */
 void vibe_value_free(VibeValue* value) {
     if (!value) return;
-    switch (value->type) {
-        case VIBE_TYPE_STRING:
-            vibe__free(value->as_string);
-            break;
-        case VIBE_TYPE_ARRAY:
-            if (value->as_array) {
-                for (size_t i = 0; i < value->as_array->count; i++)
-                    vibe_value_free(value->as_array->values[i]);
-                vibe__free(value->as_array->values);
-                vibe__free(value->as_array);
-            }
-            break;
-        case VIBE_TYPE_OBJECT:
-            if (value->as_object) {
-                for (size_t i = 0; i < value->as_object->count; i++) {
-                    vibe__free(value->as_object->entries[i].key);
-                    vibe_value_free(value->as_object->entries[i].value);
+
+    VibeValue** stack = NULL;
+    size_t sp = 0, scap = 0;
+
+    /* Push a container onto the worklist; returns false on OOM. */
+    #define VIBE_FREE_PUSH(v)                                                 \
+        (((sp < scap) ||                                                      \
+          (scap = scap ? scap * 2 : 64,                                       \
+           (stack = (VibeValue**)vibe__realloc(stack, scap * sizeof(*stack))) != NULL)) \
+         ? (stack[sp++] = (v), true) : false)
+
+    VibeValue* node = value;
+    for (;;) {
+        switch (node->type) {
+            case VIBE_TYPE_STRING:
+                vibe__free(node->as_string);
+                break;
+            case VIBE_TYPE_ARRAY:
+                if (node->as_array) {
+                    /* Arrays hold only scalars (the First Law), so free them
+                     * inline — no container children to enqueue. */
+                    for (size_t i = 0; i < node->as_array->count; i++)
+                        vibe_value_free(node->as_array->values[i]);
+                    vibe__free(node->as_array->values);
+                    vibe__free(node->as_array);
                 }
-                vibe__free(value->as_object->entries);
-                vibe__free(value->as_object->index);
-                vibe__free(value->as_object);
-            }
-            break;
-        default:
-            break;
+                break;
+            case VIBE_TYPE_OBJECT:
+                if (node->as_object) {
+                    VibeObject* o = node->as_object;
+                    for (size_t i = 0; i < o->count; i++) {
+                        vibe__free(o->entries[i].key);
+                        VibeValue* child = o->entries[i].value;
+                        if (child &&
+                            (child->type == VIBE_TYPE_OBJECT ||
+                             child->type == VIBE_TYPE_ARRAY)) {
+                            if (!VIBE_FREE_PUSH(child)) {
+                                /* Worklist OOM: drain this child recursively.
+                                 * Rare; bounded by remaining depth. */
+                                vibe_value_free(child);
+                            }
+                        } else {
+                            vibe_value_free(child); /* scalar / NULL: inline */
+                        }
+                    }
+                    vibe__free(o->entries);
+                    vibe__free(o->index);
+                    vibe__free(o);
+                }
+                break;
+            default:
+                break;
+        }
+        vibe__free(node);
+        if (sp == 0) break;
+        node = stack[--sp];
     }
-    vibe__free(value);
+
+    #undef VIBE_FREE_PUSH
+    vibe__free(stack);
 }
 
 /* ============================================================================
@@ -2224,7 +2288,7 @@ static void sb_put_double(StrBuf* sb, double d) {
     if (!strpbrk(buf, ".eE")) sb_puts(sb, ".0"); /* keep it lexing as a float */
 }
 
-static void emit_value(StrBuf* sb, const VibeValue* v, int indent);
+static void emit_value(StrBuf* sb, const VibeValue* v, int indent, int depth);
 
 static void emit_scalar(StrBuf* sb, const VibeValue* v) {
     char numbuf[32];
@@ -2249,7 +2313,10 @@ static void emit_key(StrBuf* sb, const char* key) {
     else sb_put_quoted(sb, key);
 }
 
-static void emit_value(StrBuf* sb, const VibeValue* v, int indent) {
+static void emit_value(StrBuf* sb, const VibeValue* v, int indent, int depth) {
+    /* Fail closed on pathologically deep trees instead of overflowing the C
+     * stack. Marking the buffer OOM makes vibe_emit return NULL. */
+    if (depth > VIBE_MAX_RECURSION_DEPTH) { sb->oom = true; return; }
     if (v->type == VIBE_TYPE_OBJECT) {
         if (v->as_object->count == 0) { sb_puts(sb, "{}"); return; }
         sb_puts(sb, "{\n");
@@ -2257,7 +2324,7 @@ static void emit_value(StrBuf* sb, const VibeValue* v, int indent) {
             sb_indent(sb, indent + 1);
             emit_key(sb, v->as_object->entries[i].key);
             sb_putc(sb, ' ');
-            emit_value(sb, v->as_object->entries[i].value, indent + 1);
+            emit_value(sb, v->as_object->entries[i].value, indent + 1, depth + 1);
             sb_putc(sb, '\n');
         }
         sb_indent(sb, indent);
@@ -2267,7 +2334,7 @@ static void emit_value(StrBuf* sb, const VibeValue* v, int indent) {
         sb_puts(sb, "[\n");
         for (size_t i = 0; i < v->as_array->count; i++) {
             sb_indent(sb, indent + 1);
-            emit_value(sb, v->as_array->values[i], indent + 1);
+            emit_value(sb, v->as_array->values[i], indent + 1, depth + 1);
             sb_putc(sb, '\n');
         }
         sb_indent(sb, indent);
@@ -2287,11 +2354,11 @@ char* vibe_emit(const VibeValue* value) {
         for (size_t i = 0; i < value->as_object->count; i++) {
             emit_key(&sb, value->as_object->entries[i].key);
             sb_putc(&sb, ' ');
-            emit_value(&sb, value->as_object->entries[i].value, 0);
+            emit_value(&sb, value->as_object->entries[i].value, 0, 1);
             sb_putc(&sb, '\n');
         }
     } else {
-        emit_value(&sb, value, 0);
+        emit_value(&sb, value, 0, 0);
         sb_putc(&sb, '\n');
     }
 
@@ -2325,6 +2392,9 @@ bool vibe_emit_file(const VibeValue* value, const char* path) {
 
 void vibe_value_print(VibeValue* value, int indent) {
     if (!value) return;
+    /* `indent` doubles as a depth counter here; stop before overflowing the C
+     * stack on a pathologically deep tree. */
+    if (indent > VIBE_MAX_RECURSION_DEPTH) { printf("..."); return; }
     const char* istr = "  ";
     switch (value->type) {
         case VIBE_TYPE_INTEGER: printf("%lld", (long long)value->as_integer); break;
