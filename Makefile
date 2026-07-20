@@ -69,7 +69,7 @@ else
 endif
 
 .PHONY: all lib cli conformance test test-suite test-all run demo \
-        clean help install uninstall parser_tool
+        clean help install uninstall parser_tool docs
 
 # Default: libraries + example + CLI (no platform surprises beyond the shared lib).
 all: lib $(EXAMPLE_BIN) $(CLI_BIN)
@@ -130,6 +130,15 @@ vibe.pc: vibe.pc.in
 	    -e 's|@LIBDIR@|$(LIBDIR)|g' \
 	    -e 's|@INCLUDEDIR@|$(INCLUDEDIR)|g' \
 	    -e 's|@VERSION@|$(VERSION)|g' $< > $@
+
+# ---- documentation (regenerate the website's Markdown-backed pages) ---------
+# Requires python3 + the `markdown` package (pip install markdown).
+docs:
+	python3 tools/gen_docs.py SPECIFICATION.md docs/specification.html \
+		"VIBE Specification" "The complete, normative specification for the VIBE configuration format."
+	python3 tools/gen_docs.py docs/Stability_Paradox.md docs/Stability_Paradox.html \
+		"The Stability Paradox" "Why VIBE refuses features on purpose."
+	@echo "Regenerated docs/specification.html and docs/Stability_Paradox.html"
 
 # ---- tests ------------------------------------------------------------------
 test: $(EXAMPLE_BIN)
@@ -201,6 +210,7 @@ help:
 	@echo "  test-suite   run the unit test suite"
 	@echo "  conformance  run the language conformance suite"
 	@echo "  test-all     run every test"
+	@echo "  docs         regenerate the Markdown-backed website pages"
 	@echo "  parser_tool  interactive TUI (requires ncurses)"
 	@echo "  install      install to \$$PREFIX (default /usr/local)"
 	@echo "  uninstall    remove installed files"

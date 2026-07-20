@@ -1,10 +1,9 @@
 # Installation Guide
 
-This guide covers how to install and use the VIBE parser in your projects.
+How to build, install, and use **libvibe** — the reference C library for the
+VIBE configuration format — and the `vibe` command-line tool.
 
 ## Quick Start
-
-### From Source
 
 ```bash
 git clone https://github.com/1ay1/vibe.git
@@ -12,322 +11,173 @@ cd vibe
 make
 ```
 
-The `vibe_example` executable will be built and ready to use.
+`make` builds:
 
-## Usage Options
+- `libvibe.a` — static library
+- `libvibe.so.1.1.0` (with SONAME `libvibe.so.1`; `.dylib` on macOS) — shared library
+- `vibe` — the command-line tool
+- `vibe_example` — the example program
 
-### Option 1: Direct Integration (Recommended)
+Run `make help` to list every target.
 
-Copy the parser files directly into your project:
-
-```bash
-cp vibe.h vibe.c /path/to/your/project/
-```
-
-Then compile them with your project:
+## Install System-Wide
 
 ```bash
-gcc -std=c11 -c vibe.c
-gcc -std=c11 -o myapp myapp.c vibe.o
-```
-
-**Pros:**
-- No system-wide installation needed
-- Easy to track specific versions
-- Simple dependency management
-- Works on all platforms
-
-### Option 2: System Installation
-
-Install the library system-wide (requires root/sudo):
-
-```bash
-make
-sudo make install
+sudo make install                 # PREFIX=/usr/local by default
+# or choose a prefix:
+sudo make install PREFIX=/usr
 ```
 
 This installs:
-- `/usr/local/include/vibe.h` - Header file
-- `/usr/local/lib/libvibe.a` - Static library
 
-Then link against the installed library:
+| Path | What |
+|------|------|
+| `$PREFIX/include/vibe.h`             | the public header |
+| `$PREFIX/lib/libvibe.a`              | static library |
+| `$PREFIX/lib/libvibe.so*`            | shared library + SONAME symlinks |
+| `$PREFIX/bin/vibe`                   | the CLI |
+| `$PREFIX/lib/pkgconfig/vibe.pc`      | pkg-config metadata |
+
+On Linux you may need `sudo ldconfig` afterward so the dynamic linker picks up
+the new shared library. Remove everything with `sudo make uninstall`.
+
+## Use It in Your Project
+
+### Option 1 — link the installed library (recommended)
 
 ```bash
-gcc -std=c11 -o myapp myapp.c -lvibe
+cc -std=c11 app.c $(pkg-config --cflags --libs vibe) -o app
 ```
 
-**Pros:**
-- Available system-wide
-- Standard library location
-- Easy linking
+`#include <vibe.h>` in your source. pkg-config supplies the include path and
+`-lvibe`.
 
-**Cons:**
-- Requires sudo/root
-- System-wide changes
-- Version conflicts possible
+### Option 2 — vendor the two files
 
-### Option 3: Local Build Directory
-
-Keep the VIBE parser in a separate directory and link to it:
+The entire parser and emitter is two files with no dependencies beyond the C
+standard library. Copy them in and compile:
 
 ```bash
-# Build VIBE
-cd /path/to/vibe
-make
+cp vibe.h vibe.c /path/to/your/project/
+cc -std=c11 app.c vibe.c -o app       # #include "vibe.h"
+```
 
-# Build your project
-cd /path/to/your/project
-gcc -std=c11 -I/path/to/vibe -c myapp.c
-gcc -std=c11 -o myapp myapp.o /path/to/vibe/vibe.o
+> You do **not** need to define `_POSIX_C_SOURCE`; `vibe.c` sets what it needs
+> internally.
+
+### CMake
+
+Vendored:
+
+```cmake
+add_library(vibe STATIC vibe.c)
+target_include_directories(vibe PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(myapp PRIVATE vibe)
+```
+
+Installed (via pkg-config):
+
+```cmake
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(VIBE REQUIRED vibe)
+target_include_directories(myapp PRIVATE ${VIBE_INCLUDE_DIRS})
+target_link_libraries(myapp PRIVATE ${VIBE_LIBRARIES})
+```
+
+### Meson
+
+```meson
+# vendored
+vibe_lib = static_library('vibe', 'vibe.c')
+vibe_dep = declare_dependency(link_with: vibe_lib, include_directories: '.')
+
+# or installed
+vibe_dep = dependency('vibe')
+```
+
+## The `vibe` CLI
+
+```
+vibe check <file>          validate; prints file:line:col: error [category]: message
+vibe fmt   <file> [-w]     reformat to canonical VIBE (stdout, or -w in place)
+vibe get   <file> <path>   print the scalar at a dotted path
+vibe version               print library + format versions
+```
+
+```bash
+vibe check config.vibe
+vibe get   config.vibe server.port
+vibe fmt   config.vibe -w
 ```
 
 ## Requirements
 
-### Compiler Requirements
+- A **C11** compiler (GCC 4.9+, Clang 3.1+, or MSVC 2015+).
+- `make` and `ar` to build the libraries.
+- No third-party dependencies. The interactive TUI (`make parser_tool`) is the
+  one exception — it needs `ncurses`.
 
-- **C11 compliant compiler**
-  - GCC 4.9+
-  - Clang 3.1+
-  - MSVC 2015+ (with C11 support)
+## Platform Notes
 
-- **POSIX environment** (for `strdup`)
-  - Linux: Native support
-  - macOS: Native support
-  - Windows: MinGW, Cygwin, or WSL
-
-### Build Tools
-
-- Make (GNU Make recommended)
-- ar (for static library creation)
-
-## Platform-Specific Instructions
-
-### Linux (Ubuntu/Debian)
+### Linux (Debian/Ubuntu)
 
 ```bash
-# Install build tools if needed
-sudo apt-get update
-sudo apt-get install build-essential
-
-# Build VIBE
-git clone https://github.com/1ay1/vibe.git
-cd vibe
-make
-
-# Run tests
-make test
-
-# Optional: Install system-wide
-sudo make install
+sudo apt-get update && sudo apt-get install -y build-essential
+git clone https://github.com/1ay1/vibe.git && cd vibe
+make && make test-all
+sudo make install && sudo ldconfig
 ```
 
 ### macOS
 
 ```bash
-# Xcode Command Line Tools provide gcc/clang
-xcode-select --install
-
-# Build VIBE
-git clone https://github.com/1ay1/vibe.git
-cd vibe
-make
-
-# Run tests
-make test
-
-# Optional: Install system-wide
-sudo make install
+xcode-select --install         # provides clang + make
+git clone https://github.com/1ay1/vibe.git && cd vibe
+make && make test-all
+sudo make install              # builds libvibe.1.1.0.dylib
 ```
 
 ### Windows
 
-#### Option 1: MinGW/MSYS2
+Use **MSYS2/MinGW** or **WSL** and follow the Linux instructions, or add
+`vibe.c`/`vibe.h` directly to a Visual Studio C project (vendored build).
+
+## Verify
 
 ```bash
-# Install MSYS2 from https://www.msys2.org/
-# In MSYS2 terminal:
-pacman -S mingw-w64-x86_64-gcc make
-
-# Build VIBE
-git clone https://github.com/1ay1/vibe.git
-cd vibe
-make
+make test-all        # example parse + 25 unit tests + conformance suite
+vibe version         # if installed
 ```
 
-#### Option 2: WSL (Windows Subsystem for Linux)
+Consume the installed shared library end-to-end:
 
 ```bash
-# Follow Linux instructions in WSL
-wsl
-git clone https://github.com/1ay1/vibe.git
-cd vibe
-make
-```
-
-#### Option 3: Visual Studio
-
-Create a new C project and add `vibe.c` and `vibe.h` to your project files. No Makefile needed.
-
-## Using VIBE in Your Project
-
-### Basic Usage
-
-```c
-#include "vibe.h"
-#include <stdio.h>
-
-int main() {
-    // Create parser
-    VibeParser* parser = vibe_parser_new();
-    
-    // Parse file
-    VibeValue* config = vibe_parse_file(parser, "config.vibe");
-    
-    if (!config) {
-        VibeError error = vibe_get_last_error(parser);
-        fprintf(stderr, "Error: %s\n", error.message);
-        vibe_parser_free(parser);
-        return 1;
-    }
-    
-    // Use configuration
-    const char* name = vibe_get_string(config, "app.name");
-    printf("App name: %s\n", name);
-    
-    // Cleanup
-    vibe_value_free(config);
-    vibe_parser_free(parser);
-    
-    return 0;
-}
-```
-
-### CMake Integration
-
-If you use CMake, add this to your `CMakeLists.txt`:
-
-```cmake
-cmake_minimum_required(VERSION 3.10)
-project(MyProject C)
-
-set(CMAKE_C_STANDARD 11)
-
-# Add VIBE parser
-add_library(vibe STATIC vibe.c)
-target_include_directories(vibe PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-
-# Your executable
-add_executable(myapp main.c)
-target_link_libraries(myapp vibe)
-```
-
-### Meson Integration
-
-For Meson build system, add to `meson.build`:
-
-```meson
-project('myproject', 'c', version: '1.0', default_options: ['c_std=c11'])
-
-vibe_lib = static_library('vibe', 'vibe.c')
-vibe_dep = declare_dependency(link_with: vibe_lib, include_directories: '.')
-
-executable('myapp', 'main.c', dependencies: vibe_dep)
-```
-
-## Verification
-
-### Test Installation
-
-```bash
-# Build the example
-make
-
-# Run tests
-make test
-
-# Should output:
-# === Running VIBE Parser Tests ===
-# Testing simple.vibe...
-# Parse successful!
-# ...
-# ✓ All tests passed!
-```
-
-### Check Library Installation (if installed system-wide)
-
-```bash
-# Check header
-ls -l /usr/local/include/vibe.h
-
-# Check library
-ls -l /usr/local/lib/libvibe.a
-
-# Test linking
-echo '#include <vibe.h>
-int main() { return 0; }' | gcc -xc - -lvibe -o test && ./test
+printf 'port 8080\n' > /tmp/t.vibe
+vibe get /tmp/t.vibe port      # -> 8080
 ```
 
 ## Troubleshooting
 
-### "strdup not declared"
-
-Add before includes:
-```c
-#define _POSIX_C_SOURCE 200809L
-#include "vibe.h"
-```
-
-Or compile with:
-```bash
-gcc -D_POSIX_C_SOURCE=200809L -std=c11 myapp.c vibe.c
-```
-
-### "cannot find -lvibe"
-
-If you installed system-wide but get linking errors:
+**`cannot find -lvibe` / library not found at runtime.** Run `sudo ldconfig`
+(Linux), or point the linker/loader at your prefix:
 
 ```bash
-# Update library cache (Linux)
-sudo ldconfig
-
-# Or specify library path explicitly
-gcc myapp.c -L/usr/local/lib -lvibe
+cc app.c -I$PREFIX/include -L$PREFIX/lib -lvibe -o app
+LD_LIBRARY_PATH=$PREFIX/lib ./app
 ```
 
-### Compilation Warnings
+Prefer `pkg-config --cflags --libs vibe`, which handles this for you (set
+`PKG_CONFIG_PATH=$PREFIX/lib/pkgconfig` for a non-standard prefix).
 
-Ensure you're using C11:
-```bash
-gcc -std=c11 -Wall -Wextra myapp.c vibe.c
-```
-
-## Uninstallation
-
-### Remove System Installation
-
-```bash
-sudo rm /usr/local/include/vibe.h
-sudo rm /usr/local/lib/libvibe.a
-```
-
-### Remove Build Files
-
-```bash
-make clean
-```
+**Static linking** (no runtime dependency): link `libvibe.a` explicitly, e.g.
+`cc app.c $PREFIX/lib/libvibe.a -o app`.
 
 ## Next Steps
 
-- Read the [README.md](README.md) for API documentation
-- Check out [examples/](examples/) for usage examples
-- Review [SPECIFICATION.md](SPECIFICATION.md) for format details
-- See [CONTRIBUTING.md](CONTRIBUTING.md) to contribute
-
-## Support
-
-- 📖 Documentation: See README.md
-- 🐛 Issues: https://github.com/1ay1/vibe/issues
-- 💬 Discussions: https://github.com/1ay1/vibe/discussions
+- [API.md](docs/API.md) — the complete C API reference
+- [README.md](README.md) — overview and quick examples
+- [SPECIFICATION.md](SPECIFICATION.md) — the language, normatively
+- [tests/conformance/](tests/conformance) — the language-neutral test suite
 
 ---
 
