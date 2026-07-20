@@ -1,0 +1,5 @@
+include README.md
+include vendor/vibe.h
+include vendor/vibe_impl.c
+include vibe.py
+include vibemodule.c

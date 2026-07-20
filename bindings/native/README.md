@@ -81,3 +81,27 @@ The same canonical subset used by the FFI bindings (see [`../README.md`](../READ
   runtime's headers. Direct calls, native type marshalling, idiomatic objects
   (`vibe.Doc`, `Vibe::Doc`, a Rust `Doc` that frees on `Drop`), and it ships as
   part of the extension rather than depending on a separately-installed `.so`.
+
+## Publishing
+
+Four of these extensions are packaged for their language's registry. Each one is
+**self-contained**: it vendors the single-header `vibe.h` (+ a one-line
+`vibe_impl.c`) under `<pkg>/vendor/` and compiles the library from source at
+install time — no prebuilt `libvibe.a`, no runtime `.so`.
+
+| Package | Registry | Name | Install |
+|---------|----------|------|---------|
+| `python/` | PyPI | `vibe-lang` | `pip install vibe-lang` |
+| `node/` | npm | `vibe-native` | `npm install vibe-native` |
+| `ruby/` | RubyGems | `vibe-lang` | `gem install vibe-lang` |
+| `rust/` | crates.io | `vibe-sys` | `cargo add vibe-sys` |
+
+When `vibe.h` changes, re-sync the vendored copies before re-publishing:
+
+```sh
+./vendor.sh          # copies vibe.h + vibe_impl.c into each package's vendor/
+```
+
+Then publish per ecosystem: `python -m build && twine upload dist/*` · `npm
+publish` · `gem build vibe-lang.gemspec && gem push vibe-lang-*.gem` · `cargo
+publish`.

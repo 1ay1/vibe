@@ -2,9 +2,8 @@
   "targets": [
     {
       "target_name": "vibe",
-      "sources": [ "vibe_addon.c" ],
-      "include_dirs": [ "../../.." ],
-      "libraries": [ "<(module_root_dir)/../../../libvibe.a" ]
+      "sources": [ "vibe_addon.c", "vendor/vibe_impl.c" ],
+      "include_dirs": [ "vendor" ]
     }
   ]
 }

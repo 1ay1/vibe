@@ -1,18 +1,18 @@
-//! Link the static libvibe.a from the repo root at build time.
+//! Compile libvibe from the vendored single-header source and link it
+//! statically into the crate.
 //!
-//! This is what makes vibe-sys a real *-sys crate rather than a runtime FFI
-//! binding: cargo statically links the native archive into the Rust binary.
-
-use std::path::PathBuf;
+//! This is what makes vibe-sys a self-contained, publishable `-sys` crate: the
+//! C library is built from `vendor/vibe_impl.c` (which instantiates the
+//! single-header `vendor/vibe.h`) — no prebuilt libvibe.a is required.
 
 fn main() {
-    // build.rs runs in the crate dir; repo root is three levels up.
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../..")
-        .canonicalize()
-        .expect("locate repo root");
+    cc::Build::new()
+        .file("vendor/vibe_impl.c")
+        .include("vendor")
+        .opt_level(2)
+        .warnings(false)
+        .compile("vibe");
 
-    println!("cargo:rustc-link-search=native={}", root.display());
-    println!("cargo:rustc-link-lib=static=vibe");
-    println!("cargo:rerun-if-changed={}", root.join("libvibe.a").display());
+    println!("cargo:rerun-if-changed=vendor/vibe_impl.c");
+    println!("cargo:rerun-if-changed=vendor/vibe.h");
 }

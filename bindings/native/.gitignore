@@ -1,4 +1,8 @@
 # Build artifacts from the native extension modules (source is tracked).
+#
+# Each package's vendor/{vibe.h,vibe_impl.c} IS tracked on purpose: a published
+# package (PyPI / npm / RubyGems / crates.io) must ship the single-header lib so
+# it compiles from source with no prebuilt libvibe.a. Regenerate with vendor.sh.
 
 # C++ (_vibe literal)
 cpp/test

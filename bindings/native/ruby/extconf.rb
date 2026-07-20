@@ -1,15 +1,18 @@
 # Builds the NATIVE Ruby C-extension for libvibe.
 #
-#   cd bindings/native/ruby
-#   ruby extconf.rb && make
-#   ruby test.rb
+# Self-contained: the library is compiled from the vendored single-header
+# vendor/vibe.h (via vendor/vibe_impl.c), so `gem install` builds anywhere with
+# no prebuilt libvibe.a.
+#
+#   ruby extconf.rb && make && ruby test.rb
 require "mkmf"
 
-# Repo root holds vibe.h and libvibe.a (three levels up).
-root = File.expand_path("../../..", __dir__)
+here = __dir__
 
-$INCFLAGS << " -I#{root}"
-# Link the static archive directly so there is no runtime .so dependency.
-$LOCAL_LIBS << " #{root}/libvibe.a"
+# Compile against the vendored header, and build the library implementation TU
+# alongside the extension. VPATH lets make find vendor/vibe_impl.c.
+$INCFLAGS << " -I#{here}/vendor"
+$VPATH << "#{here}/vendor"
+$srcs = %w[vibe.c vibe_impl.c]
 
 create_makefile("vibe")

@@ -1,8 +1,28 @@
 {
   "name": "vibe-native",
-  "version": "1.1.0",
-  "description": "Native Node.js N-API addon for libvibe",
-  "private": true,
+  "version": "1.2.0",
+  "description": "Native Node.js N-API addon for libvibe — VIBE config as a tagged template",
+  "type": "module",
+  "main": "vibe.mjs",
+  "types": "vibe.d.ts",
   "gypfile": true,
-  "type": "module"
+  "scripts": {
+    "install": "node-gyp rebuild",
+    "test": "node test.mjs"
+  },
+  "files": [
+    "vibe.mjs",
+    "vibe_addon.c",
+    "binding.gyp",
+    "vendor/vibe.h",
+    "vendor/vibe_impl.c",
+    "README.md"
+  ],
+  "keywords": [ "vibe", "config", "parser", "napi", "native", "addon", "configuration" ],
+  "repository": { "type": "git", "url": "git+https://github.com/1ay1/vibe.git" },
+  "homepage": "https://github.com/1ay1/vibe#readme",
+  "bugs": { "url": "https://github.com/1ay1/vibe/issues" },
+  "author": "1ay1",
+  "license": "MIT",
+  "engines": { "node": ">=16" }
 }

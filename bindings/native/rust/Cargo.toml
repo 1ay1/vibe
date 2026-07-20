@@ -1,9 +1,22 @@
 [package]
 name = "vibe-sys"
-version = "1.1.0"
+version = "1.2.0"
 edition = "2021"
-description = "Native Rust bindings for libvibe (links libvibe.a at build time)"
-publish = false
+description = "Native Rust bindings for the VIBE config language — compiles the single-header libvibe from vendored source"
+repository = "https://github.com/1ay1/vibe"
+homepage = "https://github.com/1ay1/vibe"
+license = "MIT"
+keywords = ["vibe", "config", "parser", "sys", "ffi"]
+categories = ["config", "parser-implementations", "external-ffi-bindings"]
+readme = "README.md"
+build = "build.rs"
+include = [
+    "src/**/*.rs",
+    "build.rs",
+    "vendor/vibe.h",
+    "vendor/vibe_impl.c",
+    "README.md",
+]
 
 [lib]
 name = "vibe_sys"
@@ -14,3 +27,4 @@ name = "vibe-test"
 path = "src/main.rs"
 
 [build-dependencies]
+cc = "1.0"

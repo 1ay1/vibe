@@ -1,27 +1,23 @@
 """Build the native CPython C-API extension for libvibe.
 
-    cd bindings/native/python
-    python3 setup.py build_ext --inplace
+Self-contained: the library is compiled from the vendored single-header
+`vendor/vibe.h` (via `vendor/vibe_impl.c`), so an sdist/wheel builds anywhere
+without a prebuilt libvibe.a. Metadata lives in pyproject.toml.
 
-Then:  python3 test.py
+    python3 setup.py build_ext --inplace   # local dev
+    pip install .                          # from a checkout
+    python3 -m build                       # sdist + wheel for PyPI
 """
 import os
 from setuptools import setup, Extension
 
-# Repo root holds vibe.h and libvibe.a (three levels up from this file).
-ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+HERE = os.path.dirname(os.path.abspath(__file__))
+VENDOR = os.path.join(HERE, "vendor")
 
 vibe = Extension(
     "_vibe",
-    sources=["vibemodule.c"],
-    include_dirs=[ROOT],
-    extra_objects=[os.path.join(ROOT, "libvibe.a")],
+    sources=["vibemodule.c", os.path.join("vendor", "vibe_impl.c")],
+    include_dirs=[VENDOR],
 )
 
-setup(
-    name="vibe",
-    version="1.2.0",
-    description="VIBE as native Python syntax (libvibe bindings)",
-    py_modules=["vibe"],
-    ext_modules=[vibe],
-)
+setup(ext_modules=[vibe])

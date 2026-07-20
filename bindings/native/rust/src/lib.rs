@@ -270,7 +270,17 @@ macro_rules! vibe {
 mod tests {
     use super::*;
 
-    const SAMPLE: &str = include_str!("../../../sample.vibe");
+    const SAMPLE: &str = concat!(
+        "name libvibe\n",
+        "answer 42\n",
+        "pi 3.14159\n",
+        "enabled true\n",
+        "ports [8080, 8081, 8082]\n",
+        "server {\n",
+        "  host localhost\n",
+        "  port 8080\n",
+        "}\n",
+    );
 
     #[test]
     fn round_trips_sample() {

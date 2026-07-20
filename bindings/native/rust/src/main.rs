@@ -3,7 +3,18 @@
 use vibe_sys::vibe;
 
 fn main() {
-    let sample = include_str!("../../../sample.vibe");
+    // Self-contained sample (crate ships no files outside its own dir).
+    let sample = concat!(
+        "name libvibe\n",
+        "answer 42\n",
+        "pi 3.14159\n",
+        "enabled true\n",
+        "ports [8080, 8081, 8082]\n",
+        "server {\n",
+        "  host localhost\n",
+        "  port 8080\n",
+        "}\n",
+    );
 
     assert_eq!(vibe_sys::version(), "1.2.0");
 
