@@ -572,6 +572,37 @@ static void* vibe__calloc(size_t n, size_t size) {
 static void* vibe__realloc(void* ptr, size_t size) { return VIBE__REALLOC(ptr, size); }
 static void  vibe__free(void* ptr) { VIBE__FREE(ptr); }
 
+/* Guard against size_t overflow in the count*size product used for every array
+ * allocation. Returns 0 (an impossible byte count for a non-empty request) when
+ * n*size would wrap, so callers can treat 0 as "refuse the allocation". */
+static size_t vibe__mul_size(size_t n, size_t size) {
+    if (n != 0 && size != 0 && n > SIZE_MAX / size) return 0;
+    return n * size;
+}
+
+/* realloc `ptr` to hold `count` elements of `elem` bytes, refusing (returns
+ * NULL, leaves the original block intact) any request that would overflow. */
+static void* vibe__realloc_array(void* ptr, size_t count, size_t elem) {
+    size_t bytes = vibe__mul_size(count, elem);
+    if (bytes == 0) return NULL;   /* overflow or zero-size: refuse */
+    return vibe__realloc(ptr, bytes);
+}
+
+/* Grow a capacity by doubling, but never overflow: caps growth so that
+ * new_cap * elem still fits in size_t. Returns 0 if even the minimum next step
+ * cannot be represented (caller must then refuse to grow). */
+static size_t vibe__grow_cap(size_t cap, size_t want_min, size_t elem) {
+    size_t max_cap = elem ? (SIZE_MAX / elem) : SIZE_MAX;
+    if (want_min > max_cap) return 0;               /* can't even hold the ask */
+    size_t ncap = cap ? cap : VIBE_INITIAL_CAPACITY;
+    while (ncap < want_min) {
+        if (ncap > max_cap / 2) { ncap = want_min; break; } /* doubling would overflow */
+        ncap *= 2;
+    }
+    if (ncap > max_cap) ncap = max_cap;
+    return ncap;
+}
+
 static char* vibe__strndup(const char* s, size_t n) {
     char* d = (char*)vibe__malloc(n + 1);
     if (!d) return NULL;
@@ -911,9 +942,15 @@ static char* parse_quoted_string(VibeParser* parser) {
 #define VIBE_SB_APPEND(bytes, n)                                              \
     do {                                                                      \
         size_t need_ = (n);                                                   \
-        if (len + need_ + 1 > cap) {                                          \
+        if (need_ + 1 > cap - len) {  /* len + need_ + 1 > cap, no overflow */ \
+            if (need_ > SIZE_MAX - 1 - len) {                                  \
+                set_error(parser, VIBE_ERROR_OUT_OF_MEMORY, "String too large"); goto fail; \
+            }                                                                 \
             size_t ncap_ = cap;                                              \
-            while (len + need_ + 1 > ncap_) ncap_ *= 2;                       \
+            while (need_ + 1 > ncap_ - len) {                                 \
+                if (ncap_ > SIZE_MAX / 2) { ncap_ = len + need_ + 1; break; }  \
+                ncap_ *= 2;                                                   \
+            }                                                                 \
             char* nb_ = (char*)vibe__realloc(buf, ncap_);                     \
             if (!nb_) { set_error(parser, VIBE_ERROR_OUT_OF_MEMORY, "Out of memory"); goto fail; } \
             buf = nb_; cap = ncap_;                                          \
@@ -1342,8 +1379,11 @@ static VibeValue* parse_value_from_token(Token* token) {
  * small objects pay nothing and large ones get O(1) lookups (no more O(n^2)
  * blow-up when parsing a big flat object). */
 
-/* Round up to the next power of two, min 16. */
+/* Round up to the next power of two, min 16. Saturates instead of overflowing:
+ * for n beyond the largest representable power of two it returns that maximum. */
 static size_t vibe__next_pow2(size_t n) {
+    size_t top = ((size_t)1) << (sizeof(size_t) * 8 - 1); /* highest power of two */
+    if (n > top) return top;
     size_t c = 16;
     while (c < n) c <<= 1;
     return c;
@@ -1359,7 +1399,16 @@ static void vibe__index_put(uint32_t* index, size_t cap, const char* key, size_t
 
 /* Build or rebuild obj->index to hold obj->count entries comfortably. */
 static void vibe__obj_reindex(VibeObject* obj, size_t want) {
-    size_t cap = vibe__next_pow2(want * 2);
+    /* Slots are stored as uint32_t (slot+1); beyond that range the index can't
+     * address every entry, so fall back to the always-correct linear scan. */
+    if (obj->count >= 0xFFFFFFFFu) {
+        vibe__free(obj->index);
+        obj->index = NULL;
+        obj->index_cap = 0;
+        return;
+    }
+    size_t want2 = (want > SIZE_MAX / 2) ? SIZE_MAX : want * 2;
+    size_t cap = vibe__next_pow2(want2);
     uint32_t* index = (uint32_t*)vibe__calloc(cap, sizeof(uint32_t));
     if (!index) return;                         /* stay index-less; still correct */
     for (size_t s = 0; s < obj->count; s++)
@@ -1397,8 +1446,8 @@ void vibe_object_set(VibeObject* obj, const char* key, VibeValue* value) {
     }
 
     if (obj->count >= obj->capacity) {
-        size_t ncap = obj->capacity ? obj->capacity * 2 : VIBE_INITIAL_CAPACITY;
-        VibeObjectEntry* ne = (VibeObjectEntry*)vibe__realloc(obj->entries, ncap * sizeof(VibeObjectEntry));
+        size_t ncap = vibe__grow_cap(obj->capacity, obj->count + 1, sizeof(VibeObjectEntry));
+        VibeObjectEntry* ne = ncap ? (VibeObjectEntry*)vibe__realloc_array(obj->entries, ncap, sizeof(VibeObjectEntry)) : NULL;
         if (!ne) { vibe_value_free(value); return; }
         obj->entries = ne;
         obj->capacity = ncap;
@@ -1507,8 +1556,8 @@ void vibe_array_push(VibeArray* arr, VibeValue* value) {
     }
 
     if (arr->count >= arr->capacity) {
-        size_t ncap = arr->capacity ? arr->capacity * 2 : VIBE_INITIAL_CAPACITY;
-        VibeValue** nv = (VibeValue**)vibe__realloc(arr->values, ncap * sizeof(VibeValue*));
+        size_t ncap = vibe__grow_cap(arr->capacity, arr->count + 1, sizeof(VibeValue*));
+        VibeValue** nv = ncap ? (VibeValue**)vibe__realloc_array(arr->values, ncap, sizeof(VibeValue*)) : NULL;
         if (!nv) { vibe_value_free(value); return; }
         arr->values = nv;
         arr->capacity = ncap;
@@ -2043,9 +2092,13 @@ typedef struct {
 
 static void sb_reserve(StrBuf* sb, size_t extra) {
     if (sb->oom) return;
-    if (sb->len + extra + 1 > sb->cap) {
+    if (extra + 1 > sb->cap - sb->len) {  /* sb->len < sb->cap invariant holds */
+        if (extra > SIZE_MAX - 1 - sb->len) { sb->oom = true; return; }
         size_t ncap = sb->cap ? sb->cap : 128;
-        while (sb->len + extra + 1 > ncap) ncap *= 2;
+        while (extra + 1 > ncap - sb->len) {
+            if (ncap > SIZE_MAX / 2) { ncap = sb->len + extra + 1; break; }
+            ncap *= 2;
+        }
         char* nd = (char*)vibe__realloc(sb->data, ncap);
         if (!nd) { sb->oom = true; return; }
         sb->data = nd;

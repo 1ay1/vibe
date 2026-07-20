@@ -557,5 +557,41 @@ if (!v) { /* fails closed with a stable VibeErrorCode */ }
 
 ---
 
+## Security & Memory Safety
+
+libvibe is designed to parse **hostile input** without crashing, leaking, or
+corrupting memory. The guarantees below are enforced by the code and exercised
+by the `Security & Robustness` group of the test suite (fuzzing, adversarial
+UTF-8, resource-exhaustion, and NULL-argument cases), which runs clean under
+`-fsanitize=address,undefined -fno-sanitize-recover=all`.
+
+- **No integer-overflow-driven heap overflow.** Every capacity growth and every
+  `count * size` allocation goes through overflow-checked helpers; a request
+  that would wrap `size_t` is refused (allocation fails, the original block is
+  left intact) rather than silently under-allocating.
+- **Fail closed.** Malformed input never yields a partial tree. On any error the
+  parser frees everything it built and returns `NULL` with a stable
+  `VibeErrorCode` and a `line:column`. There is no "lenient mode".
+- **Bounded by construction.** Depth, document size, key/string length, array
+  and object cardinality, and numeric-token length are all capped
+  (`VibeLimits`) so untrusted input cannot exhaust memory or the stack. The
+  parse loop is iterative (an explicit frame stack), so deep nesting hits the
+  depth limit instead of overflowing the C stack.
+- **Whole-input UTF-8 validation.** The entire byte stream is validated as
+  well-formed UTF-8 (RFC 3629 — no overlongs, surrogates, or code points above
+  U+10FFFF) with no embedded NUL and no byte-order mark, *before* any value is
+  built. Ill-formed bytes are rejected with `VIBE_ERROR_ENCODING`.
+- **No silent numeric coercion.** An integer outside `int64_t`, or a float
+  outside `double`, is a hard parse error — never a wrapped or saturated value.
+- **NULL-safe API.** Every public function tolerates `NULL` handles: readers
+  return a sentinel, mutators no-op, and `vibe_value_free(NULL)` /
+  `vibe_free(NULL)` are no-ops.
+- **Ownership is explicit.** `vibe_object_set` / `vibe_array_push` **take
+  ownership** of the value (and free it on allocation failure or First-Law
+  rejection, so a rejected value is never leaked). `*_get` / `*_value_at`
+  return **borrowed** pointers you must not free.
+
+---
+
 For the language itself, see the [SPECIFICATION](../SPECIFICATION.md) and the
 [conformance suite](../tests/conformance). Keep calm and VIBE on. 🌊

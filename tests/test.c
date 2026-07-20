@@ -887,6 +887,229 @@ void test_examples_consistency() {
 }
 
 /* Run all tests */
+/* ============================================================================
+ * Security & robustness — adversarial inputs, limits, resource exhaustion.
+ * These exercise the hardened allocation paths and every fail-closed guard.
+ * ============================================================================ */
+
+void test_sec_deep_nesting_rejected() {
+    TEST("Security: nesting past max_depth fails closed");
+    /* Build many opening braces "k{k{k{...". Must be refused, not crash. */
+    static char src[10008];
+    size_t p = 0;
+    for (size_t i = 0; i < 5000; i++) { src[p++] = 'k'; src[p++] = '{'; }
+    src[p] = '\0';
+    VibeError err; memset(&err, 0, sizeof(err));
+    VibeValue* v = vibe_parse(src, p, &err);
+    ASSERT(v == NULL, "deep nesting must be rejected");
+    ASSERT(err.code == VIBE_ERROR_LIMIT_EXCEEDED, "expected limit-exceeded");
+    vibe_error_free(&err);
+    PASS();
+}
+
+void test_sec_nested_array_rejected() {
+    TEST("Security: First Law — array inside array rejected");
+    VibeError err; memset(&err, 0, sizeof(err));
+    VibeValue* v = vibe_parse("a [ [ 1 ] ]", 11, &err);
+    ASSERT(v == NULL, "nested array must be rejected");
+    ASSERT(err.code == VIBE_ERROR_NESTED_CONTAINER, "expected nested-container");
+    vibe_error_free(&err);
+    PASS();
+}
+
+void test_sec_embedded_nul_rejected() {
+    TEST("Security: embedded NUL byte rejected");
+    const char buf[] = { 'k', ' ', '1', '\0', 'x', ' ', '2', '\n' };
+    VibeError err; memset(&err, 0, sizeof(err));
+    VibeValue* v = vibe_parse(buf, sizeof(buf), &err);
+    ASSERT(v == NULL, "embedded NUL must be rejected");
+    ASSERT(err.code == VIBE_ERROR_ILLEGAL_CHARACTER, "expected illegal-character");
+    vibe_error_free(&err);
+    PASS();
+}
+
+void test_sec_bad_utf8_rejected() {
+    TEST("Security: ill-formed UTF-8 rejected");
+    /* Lone continuation byte, overlong, surrogate, truncated, > U+10FFFF. */
+    const char* bad[] = {
+        "k \"\x80\"\n",             /* lone continuation */
+        "k \"\xC0\xAF\"\n",         /* overlong '/' */
+        "k \"\xED\xA0\x80\"\n",     /* surrogate U+D800 */
+        "k \"\xE2\x82\"\n",         /* truncated 3-byte */
+        "k \"\xF5\x80\x80\x80\"\n", /* > U+10FFFF */
+    };
+    for (size_t i = 0; i < sizeof(bad)/sizeof(bad[0]); i++) {
+        VibeError err; memset(&err, 0, sizeof(err));
+        VibeValue* v = vibe_parse(bad[i], strlen(bad[i]), &err);
+        ASSERT(v == NULL, "ill-formed UTF-8 must be rejected");
+        ASSERT(err.code == VIBE_ERROR_ENCODING || err.code == VIBE_ERROR_ILLEGAL_CHARACTER,
+               "expected an encoding/illegal error");
+        vibe_error_free(&err);
+    }
+    PASS();
+}
+
+void test_sec_integer_out_of_range() {
+    TEST("Security: out-of-range integer fails, no silent wrap");
+    VibeError err; memset(&err, 0, sizeof(err));
+    VibeValue* v = vibe_parse("k 99999999999999999999999999\n", 29, &err);
+    ASSERT(v == NULL, "overflowing integer must be rejected");
+    vibe_error_free(&err);
+    /* But INT64_MAX itself must parse. */
+    VibeValue* ok = vibe_parse("k 9223372036854775807\n", 22, NULL);
+    ASSERT(ok != NULL, "INT64_MAX must parse");
+    ASSERT(vibe_get_int(ok, "k") == 9223372036854775807LL, "value preserved");
+    vibe_value_free(ok);
+    PASS();
+}
+
+void test_sec_custom_limits() {
+    TEST("Security: custom limits enforced (keys, array, string, key length)");
+    VibeParser* p = vibe_parser_new();
+    ASSERT(p, "parser");
+    VibeLimits lim = vibe_default_limits();
+    lim.max_object_keys = 2;
+    lim.max_array_elements = 3;
+    lim.max_key_length = 4;
+    vibe_parser_set_limits(p, &lim);
+
+    VibeValue* v = vibe_parse_string(p, "a 1\nb 2\nc 3\n");
+    ASSERT(v == NULL && vibe_get_last_error(p).code == VIBE_ERROR_LIMIT_EXCEEDED,
+           "too many keys must be rejected");
+
+    v = vibe_parse_string(p, "a [ 1 2 3 4 ]\n");
+    ASSERT(v == NULL && vibe_get_last_error(p).code == VIBE_ERROR_LIMIT_EXCEEDED,
+           "too many array elements must be rejected");
+
+    v = vibe_parse_string(p, "toolongkey 1\n");
+    ASSERT(v == NULL && vibe_get_last_error(p).code == VIBE_ERROR_LIMIT_EXCEEDED,
+           "over-long key must be rejected");
+
+    vibe_parser_free(p);
+    PASS();
+}
+
+void test_sec_first_law_api_guard() {
+    TEST("Security: API refuses container elements in arrays");
+    VibeValue* arr = vibe_value_new_array();
+    ASSERT(arr, "array");
+    vibe_array_push(arr->as_array, vibe_value_new_object()); /* must be refused+freed */
+    vibe_array_push(arr->as_array, vibe_value_new_array());  /* must be refused+freed */
+    ASSERT(vibe_array_size(arr->as_array) == 0, "containers must not enter array");
+    ASSERT(vibe_array_push_int(arr->as_array, 42), "scalar push ok");
+    ASSERT(vibe_array_size(arr->as_array) == 1, "scalar accepted");
+    vibe_value_free(arr);
+    PASS();
+}
+
+void test_sec_null_safety() {
+    TEST("Security: NULL arguments never crash");
+    ASSERT(vibe_parse(NULL, 0, NULL) == NULL, "parse NULL");
+    ASSERT(vibe_get(NULL, "a") == NULL, "get NULL root");
+    ASSERT(vibe_get(NULL, NULL) == NULL, "get NULL both");
+    ASSERT(vibe_emit(NULL) == NULL, "emit NULL");
+    ASSERT(vibe_value_clone(NULL) == NULL, "clone NULL");
+    ASSERT(vibe_object_get(NULL, "a") == NULL, "object_get NULL");
+    ASSERT(vibe_array_get(NULL, 0) == NULL, "array_get NULL");
+    ASSERT(vibe_object_size(NULL) == 0, "object_size NULL");
+    ASSERT(vibe_array_size(NULL) == 0, "array_size NULL");
+    ASSERT(!vibe_object_remove(NULL, "a"), "object_remove NULL");
+    ASSERT(!vibe_array_remove(NULL, 0), "array_remove NULL");
+    ASSERT(vibe_value_equals(NULL, NULL), "both NULL are equal (same pointer)");
+    {
+        VibeValue* one = vibe_value_new_integer(1);
+        ASSERT(!vibe_value_equals(NULL, one), "equals lhs NULL");
+        ASSERT(!vibe_value_equals(one, NULL), "equals rhs NULL");
+        vibe_value_free(one);
+    }
+    vibe_value_free(NULL); /* must be a no-op */
+    vibe_free(NULL);
+    PASS();
+}
+
+void test_sec_roundtrip_idempotent() {
+    TEST("Security: emit is idempotent (parse->emit->parse->emit stable)");
+    const char* src =
+        "name test\n"
+        "port 8080\n"
+        "ratio 1.5\n"
+        "weird \"has space and \\\"quote\\\"\"\n"
+        "tags [ a b c ]\n"
+        "nested {\n  deep {\n    x 1\n  }\n}\n";
+    VibeValue* v1 = vibe_parse(src, strlen(src), NULL);
+    ASSERT(v1, "parse 1");
+    char* e1 = vibe_emit(v1);
+    ASSERT(e1, "emit 1");
+    VibeValue* v2 = vibe_parse(e1, strlen(e1), NULL);
+    ASSERT(v2, "parse 2");
+    char* e2 = vibe_emit(v2);
+    ASSERT(e2, "emit 2");
+    ASSERT(strcmp(e1, e2) == 0, "emit must be idempotent");
+    ASSERT(vibe_value_equals(v1, v2), "trees must be equal");
+    vibe_free(e1); vibe_free(e2);
+    vibe_value_free(v1); vibe_value_free(v2);
+    PASS();
+}
+
+void test_sec_hash_index_stress() {
+    TEST("Security: large flat object (hash index + reindex) is correct");
+    VibeValue* obj = vibe_value_new_object();
+    ASSERT(obj, "obj");
+    char key[32];
+    const size_t N = 20000;
+    for (size_t i = 0; i < N; i++) {
+        snprintf(key, sizeof(key), "k%zu", i);
+        ASSERT(vibe_object_set_int(obj->as_object, key, (int64_t)i), "set");
+    }
+    ASSERT(vibe_object_size(obj->as_object) == N, "count");
+    /* Random-ish probes must all resolve through the hash index. */
+    for (size_t i = 0; i < N; i += 137) {
+        snprintf(key, sizeof(key), "k%zu", i);
+        VibeValue* got = vibe_object_get(obj->as_object, key);
+        ASSERT(got && vibe_get_int(got, NULL) == (int64_t)i, "lookup");
+    }
+    /* Remove half, ensure the rest still resolve (index rebuild path). */
+    for (size_t i = 0; i < N; i += 2) {
+        snprintf(key, sizeof(key), "k%zu", i);
+        ASSERT(vibe_object_remove(obj->as_object, key), "remove");
+    }
+    ASSERT(vibe_object_size(obj->as_object) == N / 2, "count after remove");
+    snprintf(key, sizeof(key), "k%zu", (size_t)1);
+    ASSERT(vibe_object_get(obj->as_object, key), "odd key survives");
+    snprintf(key, sizeof(key), "k%zu", (size_t)0);
+    ASSERT(!vibe_object_get(obj->as_object, key), "even key removed");
+    vibe_value_free(obj);
+    PASS();
+}
+
+void test_sec_fuzz_no_crash() {
+    TEST("Security: pseudo-random fuzz never crashes the parser");
+    /* Deterministic LCG so failures reproduce. Every input must either parse
+     * or fail cleanly — never crash, leak (ASan/UBSan catch that), or hang. */
+    uint32_t seed = 0x5eed1234u;
+    const char* alphabet = "{}[]\"\\ \n\t#abc123.-_:/=\xC3\xA9\x80";
+    size_t alen = strlen(alphabet);
+    char buf[256];
+    for (int iter = 0; iter < 20000; iter++) {
+        seed = seed * 1103515245u + 12345u;
+        size_t len = (seed >> 8) % sizeof(buf);
+        for (size_t i = 0; i < len; i++) {
+            seed = seed * 1103515245u + 12345u;
+            buf[i] = alphabet[(seed >> 8) % alen];
+        }
+        VibeError err; memset(&err, 0, sizeof(err));
+        VibeValue* v = vibe_parse(buf, len, &err);
+        if (v) {
+            char* e = vibe_emit(v);   /* emit must also survive any valid tree */
+            if (e) vibe_free(e);
+            vibe_value_free(v);
+        } else {
+            vibe_error_free(&err);
+        }
+    }
+    PASS();
+}
+
 int main() {
     printf("\n");
     printf(COLOR_BLUE "╔══════════════════════════════════════════════════════════╗\n" COLOR_RESET);
@@ -941,6 +1164,20 @@ int main() {
     printf("\n" COLOR_YELLOW "Error Handling:\n" COLOR_RESET);
     test_error_unclosed_brace();
     test_error_unclosed_quote();
+
+    /* Security & robustness */
+    printf("\n" COLOR_YELLOW "Security & Robustness:\n" COLOR_RESET);
+    test_sec_deep_nesting_rejected();
+    test_sec_nested_array_rejected();
+    test_sec_embedded_nul_rejected();
+    test_sec_bad_utf8_rejected();
+    test_sec_integer_out_of_range();
+    test_sec_custom_limits();
+    test_sec_first_law_api_guard();
+    test_sec_null_safety();
+    test_sec_roundtrip_idempotent();
+    test_sec_hash_index_stress();
+    test_sec_fuzz_no_crash();
     
     /* Summary */
     printf("\n");
