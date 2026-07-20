@@ -65,6 +65,8 @@
 
             html {
                 scroll-behavior: smooth;
+                overflow-x: hidden;
+                -webkit-text-size-adjust: 100%;
             }
 
             body {
@@ -75,6 +77,7 @@
                 line-height: 1.6;
                 color: var(--text-primary);
                 background: var(--bg-primary);
+                overflow-x: hidden;
                 transition:
                     background-color 0.3s ease,
                     color 0.3s ease;
@@ -227,6 +230,20 @@
                 display: flex;
                 gap: 2rem;
                 align-items: center;
+            }
+
+            .menu-toggle {
+                display: none;
+                background: var(--bg-tertiary);
+                border: 1px solid var(--border-color);
+                color: var(--text-primary);
+                width: 42px;
+                height: 42px;
+                border-radius: 8px;
+                cursor: pointer;
+                font-size: 1.1rem;
+                align-items: center;
+                justify-content: center;
             }
 
             .github-btn {
@@ -520,7 +537,7 @@
 
             .syntax-showcase {
                 display: grid;
-                grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+                grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
                 gap: 2rem;
                 margin-top: 3rem;
             }
@@ -766,7 +783,7 @@
 
             .features-grid {
                 display: grid;
-                grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+                grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
                 gap: 2rem;
                 margin-top: 3rem;
             }
@@ -1498,27 +1515,141 @@
                 font-family: "IBM Plex Mono", monospace;
             }
 
-            /* Responsive */
+            /* ===================== Responsive ===================== */
+
+            /* Tablet */
+            @media (max-width: 1024px) {
+                .visual-explanation,
+                .features,
+                .railroad-section,
+                .cta {
+                    padding-left: 1.5rem;
+                    padding-right: 1.5rem;
+                }
+                .philosophy-grid {
+                    grid-template-columns: 1fr !important;
+                    gap: 2rem !important;
+                }
+            }
+
+            /* Mobile */
             @media (max-width: 768px) {
+                nav {
+                    position: relative;
+                    padding: 0.75rem 1rem;
+                }
+
+                .menu-toggle {
+                    display: inline-flex;
+                    margin-left: auto;
+                    margin-right: 0.75rem;
+                }
+
                 .nav-links {
                     display: none;
+                    position: absolute;
+                    top: 100%;
+                    left: 0;
+                    right: 0;
+                    flex-direction: column;
+                    align-items: stretch;
+                    gap: 0.25rem;
+                    padding: 0.75rem 1rem 1rem;
+                    background: var(--bg-primary);
+                    border-bottom: 1px solid var(--border-color);
+                    box-shadow: 0 12px 24px rgba(0, 0, 0, 0.25);
+                }
+
+                .nav-links.open {
+                    display: flex;
+                }
+
+                .nav-links a {
+                    padding: 0.75rem 0.5rem;
+                    border-radius: 8px;
+                }
+
+                .nav-links a:hover {
+                    background: var(--bg-tertiary);
+                }
+
+                .github-btn {
+                    justify-content: center;
+                }
+
+                .theme-switcher {
+                    margin-left: 0;
                 }
 
                 h1 {
-                    font-size: 2.5rem;
+                    font-size: clamp(2.25rem, 11vw, 3rem);
                 }
 
                 .hero {
-                    padding: 4rem 1rem;
+                    margin-top: 3.5rem;
+                    padding: 3.5rem 1.25rem;
                 }
 
+                .hero-logo svg {
+                    height: 84px !important;
+                }
+
+                .hero-logo h1 {
+                    font-size: clamp(2.25rem, 11vw, 3rem) !important;
+                    margin-left: 0.5rem !important;
+                }
+
+                .hero-subtitle {
+                    font-size: 1.15rem;
+                    letter-spacing: 1px;
+                }
+
+                .hero-description {
+                    font-size: 1.05rem;
+                }
+
+                .section-title {
+                    font-size: 1.9rem;
+                }
+
+                .visual-explanation,
                 .features,
+                .railroad-section,
                 .cta {
-                    padding: 4rem 1rem;
+                    padding: 3.5rem 1.25rem;
+                }
+
+                .philosophy-section {
+                    padding: 3.5rem 1.25rem !important;
+                }
+
+                .philosophy-card {
+                    padding: 1.5rem !important;
+                }
+
+                .philosophy-grid {
+                    grid-template-columns: 1fr !important;
+                    gap: 1.75rem !important;
+                }
+
+                .code-content {
+                    padding: 1.25rem;
+                    font-size: 0.82rem;
+                }
+
+                .code-window {
+                    margin-top: 2rem;
+                }
+
+                .railroad-item,
+                .railroad-visual {
+                    padding: 1.25rem;
                 }
 
                 .stats {
                     grid-template-columns: repeat(2, 1fr);
+                    padding: 1.5rem;
+                    gap: 1.25rem;
                 }
 
                 .playground-wrapper {
@@ -1527,6 +1658,44 @@
 
                 .token-legend {
                     grid-template-columns: 1fr;
+                }
+
+                .cta h2 {
+                    font-size: 1.9rem;
+                }
+            }
+
+            /* Small phones */
+            @media (max-width: 480px) {
+                .hero-logo {
+                    flex-wrap: wrap;
+                    gap: 0.25rem;
+                }
+
+                .hero-logo svg {
+                    height: 64px !important;
+                }
+
+                .hero-badge {
+                    font-size: 0.78rem;
+                }
+
+                .btn {
+                    width: 100%;
+                    justify-content: center;
+                }
+
+                .cta-buttons {
+                    width: 100%;
+                }
+
+                .code-content {
+                    font-size: 0.75rem;
+                    padding: 1rem;
+                }
+
+                .section-title {
+                    font-size: 1.6rem;
                 }
             }
         </style>
@@ -1658,7 +1827,7 @@
                         >
                     </div>
                 </a>
-                <div class="nav-links">
+                <div class="nav-links" id="navLinks">
                     <a href="#features">Features</a>
                     <a href="#railroad">Grammar</a>
                     <a href="#install">Install</a>
@@ -1668,6 +1837,14 @@
                         <i class="fab fa-github"></i> GitHub
                     </a>
                 </div>
+                <button
+                    class="menu-toggle"
+                    onclick="toggleMenu()"
+                    aria-label="Toggle menu"
+                    aria-expanded="false"
+                >
+                    <i class="fas fa-bars"></i>
+                </button>
                 <div class="theme-switcher">
                     <div class="theme-toggle" onclick="toggleTheme()">
                         <div class="theme-toggle-slider">
@@ -2572,6 +2749,7 @@ int64_t     port = <span class="property">vibe_get_int</span>(cfg, <span class="
 
         <!-- Philosophy Section -->
         <section
+            class="philosophy-section"
             style="
                 background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
                 padding: 6rem 2rem;
@@ -2617,6 +2795,7 @@ int64_t     port = <span class="property">vibe_get_int</span>(cfg, <span class="
                 </div>
 
                 <div
+                    class="philosophy-card"
                     style="
                         background: rgba(255, 255, 255, 0.1);
                         backdrop-filter: blur(10px);
@@ -2627,6 +2806,7 @@ int64_t     port = <span class="property">vibe_get_int</span>(cfg, <span class="
                     "
                 >
                     <div
+                        class="philosophy-grid"
                         style="
                             display: grid;
                             grid-template-columns: 1fr 1fr;
@@ -2864,6 +3044,26 @@ int64_t     port = <span class="property">vibe_get_int</span>(cfg, <span class="
                             block: "start",
                         });
                     }
+                });
+            });
+
+            // Mobile navigation menu
+            function toggleMenu() {
+                const links = document.getElementById("navLinks");
+                const btn = document.querySelector(".menu-toggle");
+                const open = links.classList.toggle("open");
+                if (btn)
+                    btn.setAttribute("aria-expanded", open ? "true" : "false");
+            }
+
+            // Close the mobile menu after tapping a link
+            document.querySelectorAll("#navLinks a").forEach((a) => {
+                a.addEventListener("click", () => {
+                    document
+                        .getElementById("navLinks")
+                        .classList.remove("open");
+                    const btn = document.querySelector(".menu-toggle");
+                    if (btn) btn.setAttribute("aria-expanded", "false");
                 });
             });
 

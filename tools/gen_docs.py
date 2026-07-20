@@ -43,11 +43,12 @@ TEMPLATE = """<!doctype html>
         --border-color: #e2e8f0; --code-bg: #f6f8fa;
         --text-primary: #0f172a; --text-secondary: #334155; --text-muted: #64748b;
       }
-      html { scroll-behavior: smooth; }
+      html { scroll-behavior: smooth; overflow-x: hidden; -webkit-text-size-adjust: 100%; }
       body {
         font-family: "IBM Plex Mono", ui-monospace, monospace;
         background: var(--bg-primary); color: var(--text-secondary);
         line-height: 1.7; -webkit-font-smoothing: antialiased;
+        overflow-x: hidden;
       }
       a { color: var(--primary-light); text-decoration: none; }
       a:hover { text-decoration: underline; }
@@ -134,9 +135,23 @@ TEMPLATE = """<!doctype html>
         padding: 2rem 1.5rem; text-align: center; color: var(--text-muted); font-size: 0.85rem;
       }
       @media (max-width: 900px) {
-        .layout { grid-template-columns: 1fr; }
-        .toc { position: static; max-height: none; order: -1; }
+        nav { flex-wrap: wrap; gap: 1rem; padding: 0.75rem 1rem; }
+        .layout { grid-template-columns: 1fr; padding: 1.5rem 1.15rem; gap: 1.5rem; }
+        .toc { position: static; max-height: 42vh; order: -1; }
+        article { max-width: 100%; }
+        article h1 { font-size: 1.8rem; }
+        article h2 { font-size: 1.35rem; }
+        article table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+        article pre { padding: 0.9rem 1rem; }
+      }
+      @media (max-width: 560px) {
         nav .hide-sm { display: none; }
+        nav a, .theme-btn { font-size: 0.82rem; }
+        .brand { font-size: 1rem; }
+        article h1 { font-size: 1.55rem; }
+        article h2 { font-size: 1.25rem; }
+        article pre code { font-size: 0.8rem; }
+        pre { padding: 0.85rem 0.9rem; }
       }
     </style>
   </head>
