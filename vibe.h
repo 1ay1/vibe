@@ -340,6 +340,43 @@ VIBE_API VibeValue* vibe_value_new_object(void);
 /** Deep-copy a value and everything it owns. NULL on failure. */
 VIBE_API VibeValue* vibe_value_clone(const VibeValue* value);
 
+/** Deep structural equality. Two values are equal iff they have the same type
+ *  and equal contents: scalars compare by value (strings byte-for-byte, numbers
+ *  exactly — note 1 and 1.0 differ in type so are NOT equal); arrays compare
+ *  element-wise in order; objects compare as sets of key/value pairs regardless
+ *  of insertion order. NULL == NULL. */
+VIBE_API bool vibe_value_equals(const VibeValue* a, const VibeValue* b);
+
+/* ============================================================================
+ * VALUE INSPECTION  (type-safe, path-free access to a value in hand)
+ * ============================================================================
+ * When you already hold a VibeValue* (e.g. from vibe_array_get or
+ * vibe_object_get) these read it without a dotted path and without touching
+ * the union directly. The typed readers return a sentinel (0 / false / NULL /
+ * empty) when the value is NULL or of the wrong type; the *_or forms let you
+ * choose the fallback.
+ */
+VIBE_API VibeType vibe_value_type(const VibeValue* value);
+VIBE_API bool vibe_is_null(const VibeValue* value);
+VIBE_API bool vibe_is_integer(const VibeValue* value);
+VIBE_API bool vibe_is_float(const VibeValue* value);
+VIBE_API bool vibe_is_boolean(const VibeValue* value);
+VIBE_API bool vibe_is_string(const VibeValue* value);
+VIBE_API bool vibe_is_array(const VibeValue* value);
+VIBE_API bool vibe_is_object(const VibeValue* value);
+
+VIBE_API int64_t     vibe_value_int(const VibeValue* value);
+VIBE_API double      vibe_value_float(const VibeValue* value);
+VIBE_API bool        vibe_value_bool(const VibeValue* value);
+VIBE_API const char* vibe_value_string(const VibeValue* value);
+VIBE_API VibeArray*  vibe_value_array(const VibeValue* value);
+VIBE_API VibeObject* vibe_value_object(const VibeValue* value);
+
+VIBE_API int64_t     vibe_value_int_or(const VibeValue* value, int64_t fallback);
+VIBE_API double      vibe_value_float_or(const VibeValue* value, double fallback);
+VIBE_API bool        vibe_value_bool_or(const VibeValue* value, bool fallback);
+VIBE_API const char* vibe_value_string_or(const VibeValue* value, const char* fallback);
+
 /* ============================================================================
  * PATH ACCESS  (dotted paths, e.g. "server.tls.port")
  * ============================================================================
@@ -374,7 +411,30 @@ VIBE_API VibeValue* vibe_object_get(VibeObject* object, const char* key);
 /** Number of entries in an object (0 if NULL). */
 VIBE_API size_t vibe_object_size(const VibeObject* object);
 
-/** Append `value` to `array`, taking ownership. */
+/** True if `key` is present. */
+VIBE_API bool vibe_object_has(const VibeObject* object, const char* key);
+
+/** Remove `key`, freeing its value. Returns true if a key was removed. Preserves
+ *  the insertion order of the remaining entries. */
+VIBE_API bool vibe_object_remove(VibeObject* object, const char* key);
+
+/** Iterate in insertion order: the key / value at position `index` (0-based),
+ *  or NULL if `index` is out of range. Together with vibe_object_size() these
+ *  let you walk an object without touching its internals. */
+VIBE_API const char* vibe_object_key_at(const VibeObject* object, size_t index);
+VIBE_API VibeValue*  vibe_object_value_at(const VibeObject* object, size_t index);
+
+/** Convenience setters: construct a scalar value and set it under `key` (taking
+ *  care of ownership). Return true on success, false on allocation failure. */
+VIBE_API bool vibe_object_set_string(VibeObject* object, const char* key, const char* value);
+VIBE_API bool vibe_object_set_int(VibeObject* object, const char* key, int64_t value);
+VIBE_API bool vibe_object_set_float(VibeObject* object, const char* key, double value);
+VIBE_API bool vibe_object_set_bool(VibeObject* object, const char* key, bool value);
+VIBE_API bool vibe_object_set_null(VibeObject* object, const char* key);
+
+/** Append `value` to `array`, taking ownership. Per the First Law, arrays hold
+ *  scalars only: pushing an ARRAY or OBJECT is rejected (the value is freed and
+ *  the call is a no-op). */
 VIBE_API void vibe_array_push(VibeArray* array, VibeValue* value);
 
 /** Element at `index` (not a copy), or NULL if out of range. */
@@ -382,6 +442,19 @@ VIBE_API VibeValue* vibe_array_get(VibeArray* array, size_t index);
 
 /** Number of elements in an array (0 if NULL). */
 VIBE_API size_t vibe_array_size(const VibeArray* array);
+
+/** Remove and free the element at `index`, shifting later elements down.
+ *  Returns true if an element was removed. */
+VIBE_API bool vibe_array_remove(VibeArray* array, size_t index);
+
+/** Remove and free every element, leaving an empty array. */
+VIBE_API void vibe_array_clear(VibeArray* array);
+
+/** Convenience appenders for scalar elements. Return true on success. */
+VIBE_API bool vibe_array_push_string(VibeArray* array, const char* value);
+VIBE_API bool vibe_array_push_int(VibeArray* array, int64_t value);
+VIBE_API bool vibe_array_push_float(VibeArray* array, double value);
+VIBE_API bool vibe_array_push_bool(VibeArray* array, bool value);
 
 /* ============================================================================
  * EMITTING  (serialise a value tree back to canonical VIBE text)
@@ -585,6 +658,9 @@ const char* vibe_format_version(void) { return VIBE_FORMAT_VERSION; }
 /* Free a buffer returned by the library (e.g. vibe_emit). Routes through the
  * active allocator so callers never need to know which free() to use. */
 void vibe_free(void* ptr) { vibe__free(ptr); }
+
+/* Allocate through the active allocator. Pair with vibe_free(). */
+void* vibe_malloc(size_t size) { return vibe__malloc(size); }
 
 VibeLimits vibe_default_limits(void) {
     VibeLimits limits;
@@ -1150,6 +1226,87 @@ VibeValue* vibe_value_clone(const VibeValue* value) {
     return NULL;
 }
 
+bool vibe_value_equals(const VibeValue* a, const VibeValue* b) {
+    if (a == b) return true;              /* same pointer, incl. both NULL */
+    if (!a || !b) return false;
+    if (a->type != b->type) return false;
+    switch (a->type) {
+        case VIBE_TYPE_NULL:    return true;
+        case VIBE_TYPE_INTEGER: return a->as_integer == b->as_integer;
+        case VIBE_TYPE_FLOAT:
+            /* Bitwise-identical doubles are equal; this makes NaN==NaN true and
+             * keeps +0.0 != -0.0, which matches "same stored value". */
+            return memcmp(&a->as_float, &b->as_float, sizeof(double)) == 0;
+        case VIBE_TYPE_BOOLEAN: return a->as_boolean == b->as_boolean;
+        case VIBE_TYPE_STRING:  return strcmp(a->as_string, b->as_string) == 0;
+        case VIBE_TYPE_ARRAY: {
+            const VibeArray* x = a->as_array; const VibeArray* y = b->as_array;
+            if (x->count != y->count) return false;
+            for (size_t i = 0; i < x->count; i++)
+                if (!vibe_value_equals(x->values[i], y->values[i])) return false;
+            return true;
+        }
+        case VIBE_TYPE_OBJECT: {
+            const VibeObject* x = a->as_object; const VibeObject* y = b->as_object;
+            if (x->count != y->count) return false;
+            /* Order-insensitive: two objects are equal as key/value sets. Uses
+             * y's hash index when present, so this is O(n) not O(n^2). */
+            for (size_t i = 0; i < x->count; i++) {
+                VibeValue* yv = vibe_object_get((VibeObject*)y, x->entries[i].key);
+                if (!yv || !vibe_value_equals(x->entries[i].value, yv)) return false;
+            }
+            return true;
+        }
+    }
+    return false;
+}
+
+/* ============================================================================
+ * Value inspection (type-safe, path-free)
+ * ============================================================================ */
+
+VibeType vibe_value_type(const VibeValue* v) { return v ? v->type : VIBE_TYPE_NULL; }
+
+bool vibe_is_null(const VibeValue* v)    { return !v || v->type == VIBE_TYPE_NULL; }
+bool vibe_is_integer(const VibeValue* v) { return v && v->type == VIBE_TYPE_INTEGER; }
+bool vibe_is_float(const VibeValue* v)   { return v && v->type == VIBE_TYPE_FLOAT; }
+bool vibe_is_boolean(const VibeValue* v) { return v && v->type == VIBE_TYPE_BOOLEAN; }
+bool vibe_is_string(const VibeValue* v)  { return v && v->type == VIBE_TYPE_STRING; }
+bool vibe_is_array(const VibeValue* v)   { return v && v->type == VIBE_TYPE_ARRAY; }
+bool vibe_is_object(const VibeValue* v)  { return v && v->type == VIBE_TYPE_OBJECT; }
+
+int64_t vibe_value_int(const VibeValue* v) {
+    return (v && v->type == VIBE_TYPE_INTEGER) ? v->as_integer : 0;
+}
+double vibe_value_float(const VibeValue* v) {
+    return (v && v->type == VIBE_TYPE_FLOAT) ? v->as_float : 0.0;
+}
+bool vibe_value_bool(const VibeValue* v) {
+    return (v && v->type == VIBE_TYPE_BOOLEAN) ? v->as_boolean : false;
+}
+const char* vibe_value_string(const VibeValue* v) {
+    return (v && v->type == VIBE_TYPE_STRING) ? v->as_string : NULL;
+}
+VibeArray* vibe_value_array(const VibeValue* v) {
+    return (v && v->type == VIBE_TYPE_ARRAY) ? v->as_array : NULL;
+}
+VibeObject* vibe_value_object(const VibeValue* v) {
+    return (v && v->type == VIBE_TYPE_OBJECT) ? v->as_object : NULL;
+}
+
+int64_t vibe_value_int_or(const VibeValue* v, int64_t fallback) {
+    return (v && v->type == VIBE_TYPE_INTEGER) ? v->as_integer : fallback;
+}
+double vibe_value_float_or(const VibeValue* v, double fallback) {
+    return (v && v->type == VIBE_TYPE_FLOAT) ? v->as_float : fallback;
+}
+bool vibe_value_bool_or(const VibeValue* v, bool fallback) {
+    return (v && v->type == VIBE_TYPE_BOOLEAN) ? v->as_boolean : fallback;
+}
+const char* vibe_value_string_or(const VibeValue* v, const char* fallback) {
+    return (v && v->type == VIBE_TYPE_STRING) ? v->as_string : fallback;
+}
+
 static VibeValue* parse_value_from_token(Token* token) {
     if (!token) return NULL;
     switch (token->type) {
@@ -1271,8 +1428,83 @@ VibeValue* vibe_object_get(VibeObject* obj, const char* key) {
 
 size_t vibe_object_size(const VibeObject* obj) { return obj ? obj->count : 0; }
 
+bool vibe_object_has(const VibeObject* obj, const char* key) {
+    return obj && key && vibe__obj_find(obj, key) != (size_t)-1;
+}
+
+const char* vibe_object_key_at(const VibeObject* obj, size_t index) {
+    if (!obj || index >= obj->count) return NULL;
+    return obj->entries[index].key;
+}
+
+VibeValue* vibe_object_value_at(const VibeObject* obj, size_t index) {
+    if (!obj || index >= obj->count) return NULL;
+    return obj->entries[index].value;
+}
+
+bool vibe_object_remove(VibeObject* obj, const char* key) {
+    if (!obj || !key) return false;
+    size_t slot = vibe__obj_find(obj, key);
+    if (slot == (size_t)-1) return false;
+
+    vibe__free(obj->entries[slot].key);
+    vibe_value_free(obj->entries[slot].value);
+    /* Shift later entries down to preserve insertion order. */
+    memmove(&obj->entries[slot], &obj->entries[slot + 1],
+            (obj->count - slot - 1) * sizeof(VibeObjectEntry));
+    obj->count--;
+
+    /* Slot numbers shifted, so the hash index is stale: rebuild it if we still
+     * want one, else drop it (small objects fall back to linear scan). */
+    if (obj->index) {
+        vibe__free(obj->index);
+        obj->index = NULL;
+        obj->index_cap = 0;
+        if (obj->count >= VIBE_OBJECT_HASH_THRESHOLD) vibe__obj_reindex(obj, obj->count);
+    }
+    return true;
+}
+
+bool vibe_object_set_string(VibeObject* obj, const char* key, const char* value) {
+    VibeValue* v = vibe_value_new_string(value);
+    if (!v) return false;
+    vibe_object_set(obj, key, v);
+    return vibe_object_get(obj, key) == v;
+}
+bool vibe_object_set_int(VibeObject* obj, const char* key, int64_t value) {
+    VibeValue* v = vibe_value_new_integer(value);
+    if (!v) return false;
+    vibe_object_set(obj, key, v);
+    return vibe_object_get(obj, key) == v;
+}
+bool vibe_object_set_float(VibeObject* obj, const char* key, double value) {
+    VibeValue* v = vibe_value_new_float(value);
+    if (!v) return false;
+    vibe_object_set(obj, key, v);
+    return vibe_object_get(obj, key) == v;
+}
+bool vibe_object_set_bool(VibeObject* obj, const char* key, bool value) {
+    VibeValue* v = vibe_value_new_boolean(value);
+    if (!v) return false;
+    vibe_object_set(obj, key, v);
+    return vibe_object_get(obj, key) == v;
+}
+bool vibe_object_set_null(VibeObject* obj, const char* key) {
+    VibeValue* v = vibe_value_new_null();
+    if (!v) return false;
+    vibe_object_set(obj, key, v);
+    return vibe_object_get(obj, key) == v;
+}
+
 void vibe_array_push(VibeArray* arr, VibeValue* value) {
     if (!arr || !value) { vibe_value_free(value); return; }
+    /* The First Law: arrays hold scalars only. A container element is a bug in
+     * the caller — refuse it rather than build a document the parser would
+     * reject on the way back in. */
+    if (value->type == VIBE_TYPE_ARRAY || value->type == VIBE_TYPE_OBJECT) {
+        vibe_value_free(value);
+        return;
+    }
 
     if (arr->count >= arr->capacity) {
         size_t ncap = arr->capacity ? arr->capacity * 2 : VIBE_INITIAL_CAPACITY;
@@ -1290,6 +1522,50 @@ VibeValue* vibe_array_get(VibeArray* arr, size_t index) {
 }
 
 size_t vibe_array_size(const VibeArray* arr) { return arr ? arr->count : 0; }
+
+bool vibe_array_remove(VibeArray* arr, size_t index) {
+    if (!arr || index >= arr->count) return false;
+    vibe_value_free(arr->values[index]);
+    memmove(&arr->values[index], &arr->values[index + 1],
+            (arr->count - index - 1) * sizeof(VibeValue*));
+    arr->count--;
+    return true;
+}
+
+void vibe_array_clear(VibeArray* arr) {
+    if (!arr) return;
+    for (size_t i = 0; i < arr->count; i++) vibe_value_free(arr->values[i]);
+    arr->count = 0;
+}
+
+bool vibe_array_push_string(VibeArray* arr, const char* value) {
+    VibeValue* v = vibe_value_new_string(value);
+    if (!v) return false;
+    size_t before = vibe_array_size(arr);
+    vibe_array_push(arr, v);
+    return vibe_array_size(arr) == before + 1;
+}
+bool vibe_array_push_int(VibeArray* arr, int64_t value) {
+    VibeValue* v = vibe_value_new_integer(value);
+    if (!v) return false;
+    size_t before = vibe_array_size(arr);
+    vibe_array_push(arr, v);
+    return vibe_array_size(arr) == before + 1;
+}
+bool vibe_array_push_float(VibeArray* arr, double value) {
+    VibeValue* v = vibe_value_new_float(value);
+    if (!v) return false;
+    size_t before = vibe_array_size(arr);
+    vibe_array_push(arr, v);
+    return vibe_array_size(arr) == before + 1;
+}
+bool vibe_array_push_bool(VibeArray* arr, bool value) {
+    VibeValue* v = vibe_value_new_boolean(value);
+    if (!v) return false;
+    size_t before = vibe_array_size(arr);
+    vibe_array_push(arr, v);
+    return vibe_array_size(arr) == before + 1;
+}
 
 /* ============================================================================
  * Cleanup

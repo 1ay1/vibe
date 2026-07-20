@@ -25,6 +25,7 @@ parse is independent, so one `VibeParser` per thread is fully re-entrant.
 - [Resource Limits](#resource-limits)
 - [Allocator Hooks](#allocator-hooks)
 - [Value Constructors](#value-constructors)
+- [Value Inspection & Equality](#value-inspection--equality)
 - [Path Access](#path-access)
 - [Container Operations](#container-operations)
 - [Emitting](#emitting)
@@ -307,6 +308,51 @@ VibeValue *vibe_value_clone(const VibeValue *value);                    /* deep 
 
 ---
 
+## Value Inspection & Equality
+
+When you already hold a `VibeValue *` (e.g. from `vibe_array_get` or
+`vibe_object_get`), these read it **without a dotted path** and without touching
+the union directly. The typed readers return a sentinel (`0` / `false` / `NULL`)
+on type mismatch; the `*_or` forms take an explicit fallback.
+
+```c
+VibeType vibe_value_type(const VibeValue *v);
+
+bool vibe_is_null(const VibeValue *v);
+bool vibe_is_integer(const VibeValue *v);
+bool vibe_is_float(const VibeValue *v);
+bool vibe_is_boolean(const VibeValue *v);
+bool vibe_is_string(const VibeValue *v);
+bool vibe_is_array(const VibeValue *v);
+bool vibe_is_object(const VibeValue *v);
+
+int64_t     vibe_value_int(const VibeValue *v);
+double      vibe_value_float(const VibeValue *v);
+bool        vibe_value_bool(const VibeValue *v);
+const char *vibe_value_string(const VibeValue *v);
+VibeArray  *vibe_value_array(const VibeValue *v);
+VibeObject *vibe_value_object(const VibeValue *v);
+
+int64_t     vibe_value_int_or(const VibeValue *v, int64_t fallback);
+double      vibe_value_float_or(const VibeValue *v, double fallback);
+bool        vibe_value_bool_or(const VibeValue *v, bool fallback);
+const char *vibe_value_string_or(const VibeValue *v, const char *fallback);
+```
+
+**Deep structural equality:**
+
+```c
+bool vibe_value_equals(const VibeValue *a, const VibeValue *b);
+```
+
+Equal iff same type and equal contents. Scalars compare by value (strings
+byte-for-byte, floats bit-exact so `NaN == NaN` and `+0.0 != -0.0`); note `1`
+(integer) and `1.0` (float) are **not** equal — different types. Arrays compare
+element-wise in order; objects compare as **key/value sets regardless of
+insertion order**. `NULL == NULL`. A `vibe_value_clone(x)` always equals `x`.
+
+---
+
 ## Path Access
 
 Dotted paths walk nested objects (`"server.tls.port"`). The plain readers return
@@ -340,23 +386,60 @@ int64_t     port = vibe_get_int_or(cfg, "server.port", 8080);
 
 ## Container Operations
 
-```c
-void       vibe_object_set(VibeObject *obj, const char *key, VibeValue *value); /* takes ownership */
-VibeValue *vibe_object_get(VibeObject *obj, const char *key);                   /* borrowed */
-size_t     vibe_object_size(const VibeObject *obj);
+**Objects** — insertion-ordered key/value maps with amortised O(1) lookup:
 
-void       vibe_array_push(VibeArray *arr, VibeValue *value);                   /* takes ownership */
-VibeValue *vibe_array_get(VibeArray *arr, size_t index);                        /* borrowed */
-size_t     vibe_array_size(const VibeArray *arr);
+```c
+void        vibe_object_set(VibeObject *obj, const char *key, VibeValue *value); /* takes ownership */
+VibeValue  *vibe_object_get(VibeObject *obj, const char *key);                   /* borrowed */
+size_t      vibe_object_size(const VibeObject *obj);
+bool        vibe_object_has(const VibeObject *obj, const char *key);
+bool        vibe_object_remove(VibeObject *obj, const char *key);                /* preserves order */
+
+/* iterate in insertion order */
+const char *vibe_object_key_at(const VibeObject *obj, size_t index);
+VibeValue  *vibe_object_value_at(const VibeObject *obj, size_t index);
+
+/* convenience setters — build a scalar and store it in one call */
+bool vibe_object_set_string(VibeObject *obj, const char *key, const char *value);
+bool vibe_object_set_int(VibeObject *obj, const char *key, int64_t value);
+bool vibe_object_set_float(VibeObject *obj, const char *key, double value);
+bool vibe_object_set_bool(VibeObject *obj, const char *key, bool value);
+bool vibe_object_set_null(VibeObject *obj, const char *key);
+```
+
+**Arrays** — ordered lists of **scalars only** (the First Law):
+
+```c
+void        vibe_array_push(VibeArray *arr, VibeValue *value);   /* takes ownership; rejects containers */
+VibeValue  *vibe_array_get(VibeArray *arr, size_t index);        /* borrowed */
+size_t      vibe_array_size(const VibeArray *arr);
+bool        vibe_array_remove(VibeArray *arr, size_t index);     /* shifts later elements down */
+void        vibe_array_clear(VibeArray *arr);
+
+/* convenience appenders */
+bool vibe_array_push_string(VibeArray *arr, const char *value);
+bool vibe_array_push_int(VibeArray *arr, int64_t value);
+bool vibe_array_push_float(VibeArray *arr, double value);
+bool vibe_array_push_bool(VibeArray *arr, bool value);
 ```
 
 `vibe_object_set()` replaces an existing key (freeing the old value). On
-allocation failure the passed value is freed rather than leaked.
+allocation failure the passed value is freed rather than leaked. Pushing an
+object or array into an array is **refused** (the value is freed, the array is
+unchanged) — arrays hold scalars, always.
 
 ```c
-VibeArray *ports = vibe_get_array(cfg, "server.ports");
-for (size_t i = 0; i < vibe_array_size(ports); i++)
-    printf("port %lld\n", (long long)vibe_get_int(vibe_array_get(ports, i), NULL));
+/* Walk an object without touching internals: */
+VibeObject *o = vibe_get_object(cfg, "server");
+for (size_t i = 0; i < vibe_object_size(o); i++)
+    printf("%s = %s\n", vibe_object_key_at(o, i),
+           vibe_type_name(vibe_value_type(vibe_object_value_at(o, i))));
+
+/* Build a tree fluently: */
+VibeValue *root = vibe_value_new_object();
+VibeObject *r = vibe_value_object(root);
+vibe_object_set_string(r, "name", "My App");
+vibe_object_set_int(r, "port", 8080);
 ```
 
 ---
@@ -443,13 +526,15 @@ Build (vendored): `cc app.c vibe.c -o app`
 
 ```c
 VibeValue *root = vibe_value_new_object();
-vibe_object_set(root->as_object, "name", vibe_value_new_string("My App"));
-vibe_object_set(root->as_object, "port", vibe_value_new_integer(8080));
+VibeObject *r = vibe_value_object(root);
+vibe_object_set_string(r, "name", "My App");
+vibe_object_set_int(r, "port", 8080);
 
-VibeValue *tags = vibe_value_new_array();
-vibe_array_push(tags->as_array, vibe_value_new_string("web"));
-vibe_array_push(tags->as_array, vibe_value_new_string("api"));
-vibe_object_set(root->as_object, "tags", tags);
+VibeValue *tagsv = vibe_value_new_array();
+VibeArray *tags = vibe_value_array(tagsv);
+vibe_array_push_string(tags, "web");
+vibe_array_push_string(tags, "api");
+vibe_object_set(r, "tags", tagsv);
 
 char *text = vibe_emit(root);   /* name "My App"\nport 8080\ntags [ ... ]\n */
 fputs(text, stdout);
