@@ -36,7 +36,7 @@ replicas {
 
 Arrays in VIBE hold **scalars only** — a bag of numbers, strings, or booleans.
 The moment you need structure, you need a key. This is not a missing feature; it
-is *the point.* See [The Stability Paradox](Stability_Paradox.md) for the full
+is *the point.* See [The Stability Paradox](docs/Stability_Paradox.md) for the full
 argument.
 
 ---
@@ -622,7 +622,7 @@ mixed_special "配置 # with comment char"
 - All values are parsed independently as primitives
 - Use named objects instead of object arrays for complex data
 
-> **Design Philosophy**: This restriction is intentional and core to VIBE's design. Arrays of objects create instability through index-based references, ambiguous merging, and lack of inherent identity. VIBE forces you to use named objects, which provide stable path-based references and deterministic configuration merging. See [Stability_Paradox.md](docs/Stability_Paradox.md) for the full rationale.
+> **Design Philosophy**: This restriction is intentional and core to VIBE's design. Arrays of objects create instability through index-based references, ambiguous merging, and lack of inherent identity. VIBE forces you to use named objects, which provide stable path-based references and deterministic configuration merging. See [The Stability Paradox](docs/Stability_Paradox.md) for the full rationale.
 
 **Examples**:
 ```

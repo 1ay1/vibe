@@ -11,6 +11,7 @@ can never drift from the source Markdown again.
 Requires: python3 + the `markdown` package (pip install markdown).
 """
 
+import re
 import sys
 import markdown
 
@@ -204,6 +205,29 @@ TEMPLATE = """<!doctype html>
 """
 
 
+# Cross-links between the docs point at the SOURCE Markdown (correct when
+# browsing the repo on GitHub), but the website serves generated HTML. Rewrite
+# intra-repo *.md links to their generated *.html siblings so a live page never
+# links out to raw Markdown. Absolute/external URLs are left untouched, and any
+# leading directory is dropped because the generated pages all live in docs/.
+_DOC_HTML = {
+    "specification.md": "specification.html",
+    "stability_paradox.md": "Stability_Paradox.html",
+}
+
+
+def rewrite_md_links(html):
+    def repl(m):
+        target, frag = m.group(1), m.group(2) or ""
+        if target.lower().startswith(("http://", "https://", "//", "mailto:")):
+            return m.group(0)
+        base = target.rsplit("/", 1)[-1]
+        html_name = _DOC_HTML.get(base.lower(), base[:-3] + ".html")
+        return 'href="%s%s"' % (html_name, frag)
+
+    return re.sub(r'href="([^"#]+\.md)(#[^"]*)?"', repl, html, flags=re.I)
+
+
 def main():
     if len(sys.argv) < 3:
         sys.exit("usage: gen_docs.py <input.md> <output.html> [title] [description]")
@@ -218,7 +242,7 @@ def main():
         extensions=["extra", "tables", "fenced_code", "sane_lists", "toc", "attr_list"],
         extension_configs={"toc": {"toc_depth": "2-3", "permalink": False}},
     )
-    body = md.convert(text)
+    body = rewrite_md_links(md.convert(text))
     toc = md.toc or "<ul></ul>"
 
     page = (
