@@ -33,7 +33,7 @@ DESTDIR      ?=
 
 # ---- artifacts --------------------------------------------------------------
 LIB_OBJ    := vibe.o
-PIC_OBJ    := vibe.lo
+PIC_OBJ    := vibe_pic.o
 STATIC_LIB := libvibe.a
 
 EXAMPLE_BIN := vibe_example
@@ -192,11 +192,11 @@ uninstall:
 
 # ---- housekeeping -----------------------------------------------------------
 clean:
-	rm -f $(LIB_OBJ) $(PIC_OBJ) $(EXAMPLE_OBJ) $(TEST_OBJ) $(CLI_OBJ) $(PARSER_TOOL_OBJ)
+	rm -f $(LIB_OBJ) $(PIC_OBJ) vibe.lo $(EXAMPLE_OBJ) $(TEST_OBJ) $(CLI_OBJ) $(PARSER_TOOL_OBJ)
 	rm -f $(STATIC_LIB) libvibe.so libvibe.so.* libvibe.*.dylib libvibe.dylib
 	rm -f $(EXAMPLE_BIN) $(TEST_BIN) $(CLI_BIN) $(CONF_BIN) $(PARSER_TOOL_BIN)
 	rm -f vibe.pc
-	rm -f *.gcov *.gcda *.gcno
+	rm -f *.gcov *.gcda *.gcno **/*.gcda **/*.gcno
 	@echo "Cleaned."
 
 help:
